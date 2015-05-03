@@ -29,3 +29,8 @@ Or, if `zenity` or `kdialog` is installed, run it from the GUI this way:
 1. [Download](https://github.com/UbuntuForums/wireless-info/raw/master/wireless-info) the script
 2. Make it executable
 3. Run it from your file browser or a Run dialog
+
+## Disconnected
+
+If you cannot connect to the internet with the affected system, including via a wired connection,
+you will have to move files between it and a system connected to the internet.
