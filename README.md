@@ -26,9 +26,11 @@ This will download the script, make it executable, and run it, all in a row.
 
 Or, if `zenity` or `kdialog` is installed, run it from the GUI this way:
 
-1. [Download](https://github.com/UbuntuForums/wireless-info/raw/master/wireless-info) the script
+1. [Download][1] the script
 2. Make it executable
 3. Run it from your file browser or a Run dialog
+
+[1]: https://github.com/UbuntuForums/wireless-info/raw/master/wireless-info
 
 ## Disconnected
 

@@ -25,7 +25,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 
-SCRIPTDATE="2015-04-30 19:23 +0200"
+SCRIPTDATE="2015-05-21 11:10 +0200"
 FILEBASE="wireless-info"
 OUTPUTDIR="$PWD"
 OUTPUTDIRFB="/tmp"
@@ -39,6 +39,9 @@ DMESGEXCL="apparmor|(cfg|mac)80211"
 MODINFOEXCL="alias"
 MODPROBEXCL="(alsa-base|blacklist-(firewire|framebuffer|modem|oss|watchdog)|fglrx|nvidia|fbdev|bumblebee)"
 PMUTILSEXCL="/etc/pm/(power.d/(95hdparm-apm|intel-audio-powersave|sata_alpm)|sleep.d/(10_grub-common|10_unattended-upgrades.*|novatel_3g.*))"
+
+NETMGRNAMES=("NetworkManager" "Wicd" "ConnMan")
+NETMGRPATHS=("/usr/sbin/NetworkManager" "/usr/sbin/wicd" "/usr/sbin/connmand")
 
 export LANG="en_US.UTF-8"
 export LANGUAGE="en_US:en"
@@ -156,7 +159,7 @@ if [ -n "$DESKTOP" ]; then
     fi
     echo "${DESKTOP/ Session/}${DESKDMRC}"
 else
-    echo "Could not be determined."
+    printf "\nCould not be determined.\n"
 fi
 
 printf "\n##### lspci #############################\n\n"
@@ -194,13 +197,29 @@ route -n
 printf "\n##### resolv.conf #######################\n\n"
 grep -v '^#' /etc/resolv.conf
 
+printf "\n##### network managers ##################\n\n"
+printf "Installed:\n\n"
+for NETMGRNR in "${!NETMGRPATHS[@]}"; do
+    if [ -f "${NETMGRPATHS[$NETMGRNR]}" ]; then
+	NETMGRINST+=("${NETMGRNAMES[$NETMGRNR]}")
+    fi
+done
+printf "\t%s\n" "${NETMGRINST[@]:-None found.}"
+NETMGRMATCHES=${NETMGRPATHS[@]/#*\//|}
+NETMGRMATCHES=${NETMGRMATCHES// |/|}
+NETMGRMATCHES="(${NETMGRMATCHES#|})"
+printf "\nRunning:\n\n"
+ps -ef | egrep "( |/)$NETMGRMATCHES($| )" || printf "\tNone found.\n"
+
 printf "\n##### NetworkManager info ###############\n\n"
 if [ -x /usr/bin/nm-tool ]; then
     nm-tool
-else
+elif [ -x /usr/bin/nmcli ]; then
     nmcli -f all device show | sed '/^GENERAL.DEVICE:[ ]\+lo$/,/^$/d; /^AP\[[0-9]\+\]\./d'
     echo
     nmcli -f SSID,BSSID,MODE,CHAN,FREQ,RATE,SIGNAL,BARS,SECURITY,ACTIVE,IN-USE device wifi list
+else
+    echo "NetworkManager is not installed (package \"network-manager\")."
 fi
 
 printf "\n##### NetworkManager.state ##############\n\n"
@@ -214,25 +233,29 @@ if [ -f /etc/NetworkManager/nm-system-settings.conf ]; then
 fi
 
 printf "\n##### NetworkManager profiles ###########\n\n"
-if [ -n "$SUDO" ]; then
-    trap "" 2 3
-    NMPROFILES=$(find /etc/NetworkManager/system-connections -maxdepth 1 -type f -exec $SUDO${GKSUDO+ -D grep --}${KDESUDO+ -d --comment "<b>grep</b>$KDESUDOCMT" --} grep -vH '^$' {} + 2> /dev/null) && SUDOSUCCESS="yes" || SUDOSUCCESS="no"
-    trap 2 3
-    if [ "$SUDOSUCCESS" = "yes" ]; then
-	ORIGIFS="$IFS"
-	IFS=$'\n'
-	for NMWLPRFFILE in $(sed -n 's/^\(.\+\):type=\(802-11-wireless\|wifi\).*$/\1/p' <<< "$NMPROFILES"); do
-	    NMWLPRFFLPERMS=$(stat -c "%a %U" "$NMWLPRFFILE")
-	    NMWLPROFILE=($(sed -n "s;^$NMWLPRFFILE:\($NMPROFMATCHES.*\)$;\1 |;p" <<< "$NMPROFILES"))
-	    NMWLPROFSOUT+="[[$NMWLPRFFILE]] ($NMWLPRFFLPERMS)"$'\n'"${NMWLPROFILE[@]}"$'\n\n'
-	done
-	IFS="$ORIGIFS"
-	sed 's# | \[#\n\[#g;s#\] |#\]#g;s/ |$//' <<< "$NMWLPROFSOUT" | sed '/^\[[^]]*\]$/d'
+if [ -d /etc/NetworkManager/system-connections ]; then
+    if [ -n "$SUDO" ]; then
+	trap "" 2 3
+	NMPROFILES=$(find /etc/NetworkManager/system-connections -maxdepth 1 -type f -exec $SUDO${GKSUDO+ -D grep --}${KDESUDO+ -d --comment "<b>grep</b>$KDESUDOCMT" --} grep -vH '^$' {} +) && SUDOSUCCESS="yes" || SUDOSUCCESS="no"
+	trap 2 3
+	if [ "$SUDOSUCCESS" = "yes" ]; then
+	    ORIGIFS="$IFS"
+	    IFS=$'\n'
+	    for NMWLPRFFILE in $(sed -n 's/^\(.\+\):type=\(802-11-wireless\|wifi\).*$/\1/p' <<< "$NMPROFILES"); do
+		NMWLPRFFLPERMS=$(stat -c "%a %U" "$NMWLPRFFILE")
+		NMWLPROFILE=($(sed -n "s;^$NMWLPRFFILE:\($NMPROFMATCHES.*\)$;\1 |;p" <<< "$NMPROFILES"))
+		NMWLPROFSOUT+="[[$NMWLPRFFILE]] ($NMWLPRFFLPERMS)"$'\n'"${NMWLPROFILE[@]}"$'\n\n'
+	    done
+	    IFS="$ORIGIFS"
+	    sed 's# | \[#\n\[#g;s#\] |#\]#g;s/ |$//' <<< "$NMWLPROFSOUT" | sed '/^\[[^]]*\]$/d'
+	else
+	    printf "\nAcquisition of admin privileges failed.\n"
+	fi
     else
-	echo "Acquisition of admin privileges failed."
+	echo "No way to acquire admin privileges found."
     fi
 else
-    echo "No way to acquire admin privileges found."
+    echo "No NetworkManager profiles found."
 fi
 
 printf "\n##### iw reg get ########################\n\n"
@@ -247,25 +270,33 @@ else
 fi
 
 printf "\n##### iwlist channels ###################\n\n"
-iwlist chan
+if [ -x /sbin/iwlist ]; then
+    iwlist chan
+else
+    echo "'iwlist' is not installed (package \"wireless-tools\")."
+fi
 
 printf "\n##### iwlist scan #######################\n\n"
-if [ -n "$SUDO" ]; then
-    trap "" 2 3
-    IWLISTSCAN=$($SUDO${KDESUDO+ -d} iwlist scan 2>&1) && SUDOSUCCESS="yes" || SUDOSUCCESS="no"
-    trap 2 3
-    if [ "$SUDOSUCCESS" = "yes" ]; then
-	if [[ $IWLISTSCAN = *Frequency:* ]]; then
-	    printf "Channel occupancy:\n\n"
-	    grep '^[ ]*Frequency:' <<< "$IWLISTSCAN" | sort | uniq -c | sed 's/^[ ]\+\([ ][0-9]\+\)[ ]\+/     \1   APs on   /'
-	    echo
+if [ -x /sbin/iwlist ]; then
+    if [ -n "$SUDO" ]; then
+	trap "" 2 3
+	IWLISTSCAN=$($SUDO${KDESUDO+ -d} iwlist scan) && SUDOSUCCESS="yes" || SUDOSUCCESS="no"
+	trap 2 3
+	if [ "$SUDOSUCCESS" = "yes" ]; then
+	    if [[ $IWLISTSCAN = *Frequency:* ]]; then
+		printf "Channel occupancy:\n\n"
+		grep '^[ ]*Frequency:' <<< "$IWLISTSCAN" | sort | uniq -c | sed 's/^[ ]\+\([ ][0-9]\+\)[ ]\+/     \1   APs on   /'
+		echo
+	    fi
+	    grep -v '^[ ]*IE: Unknown:' <<< "$IWLISTSCAN"
+	else
+	    printf "\nAcquisition of admin privileges failed.\n"
 	fi
-	egrep -v '^[ ]*IE: Unknown:|ibus-daemon' <<< "$IWLISTSCAN"
     else
-	echo "Acquisition of admin privileges failed."
+	echo "No way to acquire admin privileges found."
     fi
 else
-    echo "No way to acquire admin privileges found."
+    echo "'iwlist' is not installed (package \"wireless-tools\")."
 fi
 
 printf "\n##### module infos ######################\n\n"
