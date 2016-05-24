@@ -25,7 +25,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 
-SCRIPTDATE="2015-09-27 02:34 +0200"
+SCRIPTDATE="2016-05-24 22:04 +0200"
 FILEBASE="wireless-info"
 OUTPUTDIR="$PWD"
 OUTPUTDIRFB="/tmp"
@@ -357,7 +357,7 @@ for PMUTILSFILE in $(find /etc/pm/*.d \( -type f -o -type l \) -regextype posix-
 done
 
 printf "\n##### udev rules ########################\n\n"
-for UDEVRLFILE in /etc/udev/rules.d/*net*.rules; do
+for UDEVRLFILE in $(find /etc/udev/rules.d -name "*net*.rules" | sort); do
     UDEVRULES=$(grep -B1 '^[^#]' $UDEVRLFILE | egrep -v '^(--)?$')
     if [ -n "$UDEVRULES" ]; then
 	printf "[%s]\n%s\n\n" "$UDEVRLFILE" "$UDEVRULES"
