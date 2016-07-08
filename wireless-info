@@ -25,12 +25,12 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 
-SCRIPTDATE="2016-05-26 23:56 +0200"
+SCRIPTDATE="2016-07-07 21:16 -0500"
 FILEBASE="wireless-info"
 OUTPUTDIR="$PWD"
 OUTPUTDIRFB="/tmp"
 
-MODMATCHES="(air|ar5|at7|ath[^3]?|b43|bcma|brcm|carl|ipw|iwl|ndis|r(818|8192[eu]|871|92su)|rt[23567]|rtl|ssb|wl|(cfg|mac)80211)"
+MODMATCHES="(air|ar5|at7|ath[^3]?|b43|bcma|brcm|carl|ipw|iwl|ndis|r(818|8192[eu]|871|92su)|8(188|189|192|723|812)[acde][esu]|rt[23567]|rtl|ssb|wl|(cfg|mac)80211)"
 LSMODMATCHES="(wmi|(dell|ideapad)[-_]laptop)"
 IFACEMATCHES="(wlan[0-9]|eth[0-9])"
 DMESGMATCHES="(firmware|[nN]etwork)"
