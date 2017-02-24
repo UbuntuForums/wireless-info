@@ -1,0 +1,62 @@
+#!/bin/bash
+#
+# Copyright (c) 2017
+#
+# Author: Hadaka, Krytarik
+#
+# This script parses the output of the wireless info script
+# and suggests changes if the country code is either unset or
+# does not match the location indicated by the set time zone.
+#
+#######################################################################
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+#
+
+read -rd '' tz ccc < <(
+    if [ -f wireless-info.txt ]; then
+    	cat wireless-info.txt
+    elif [ -f wireless-info.tar.gz ]; then
+    	tar -xzOf wireless-info.tar.gz
+    fi | sed -n '/^##### iw reg get #####/,/^##### / {
+	s/^\(Region:\|country\) \([^ :]\+\).*$/\2/p
+    }')
+
+ORIGIFS="$IFS"
+IFS=$'\t'
+zi=($(grep "$tz" /usr/share/zoneinfo/zone.tab))
+IFS="$ORIGIFS"
+cc="${zi[0]}"
+
+if [ "$ccc" = "00" ]; then
+    setword="currently \e[1;31munset\e[0m"
+    cmdprt="yes"
+elif [ "$ccc" != "$cc" ]; then
+    setword="currently set to '\e[1;31m$ccc\e[0m'"
+    cmdprt="yes"
+else
+    setword="set \e[1;32mcorrectly\e[0m"
+fi
+
+printf "\n\e[1;34m%s\e[0m" "$cc"
+printf "\t%s" "${zi[@]:1}"
+printf "\n\nCountry code is %b.\n\n" "$setword" 
+
+if [ "$cmdprt" = "yes" ]; then
+    printf \
+"To set it correctly:\n
+    sudo iw reg set %s
+    sudo sed -i '"'s/^\\(REGDOMAIN\\)=.*$/\\1=%s/'"' /etc/default/crda\n
+" "$cc" "$cc"
+fi
