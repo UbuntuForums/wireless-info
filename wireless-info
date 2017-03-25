@@ -25,7 +25,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 
-SCRIPTDATE="2016-07-07 21:16 -0500"
+SCRIPTDATE="2017-03-25 08:04 +0100"
 FILEBASE="wireless-info"
 OUTPUTDIR="$PWD"
 OUTPUTDIRFB="/tmp"
@@ -145,7 +145,7 @@ exec 2>&1
 printf "\n########## wireless info START ##########\n\n"
 REPORTDATE=$(date +"%d %b %Y %H:%M %Z %z")
 SCRIPTDATE=$(date -u -d "$SCRIPTDATE" +"%d %b %Y %H:%M %Z %z")
-LASTBOOTDT=$(last -FRn 1 reboot | sed -n 's/.*system boot[ ]\+\(.\+\) - .*$/\1/p')
+LASTBOOTDT=$(last -FRn 1 reboot | sed -n 's/.*system boot[ ]\+\(.\+\) - .*/\1/p')
 LASTBOOTDT=$(date -d "$LASTBOOTDT" +"%d %b %Y %H:%M %Z %z")
 printf "Report from: %s\n\n" "$REPORTDATE"
 printf "Booted last: %s\n\n" "$LASTBOOTDT"
@@ -199,9 +199,14 @@ printf "\n##### interfaces ########################\n\n"
 sed '/^#/d;s/^wpa-psk [[:graph:]]\+/wpa-psk <WPA key removed>/' /etc/network/interfaces
 
 printf "\n##### ifconfig ##########################\n\n"
-IFCONFIG=$(ifconfig -a)
-sed '/^lo /,/^$/d' <<< "$IFCONFIG"
-IFACESETH=($(sed -n 's/^\([^ ]\+\)[ ]\+Link encap:Ethernet.*/\1/p' <<< "$IFCONFIG"))
+if [ -x /sbin/ifconfig ]; then
+    IFCONFIG=$(ifconfig -a)
+else
+    IFCONFIG=$(ip address show)
+fi
+echo "$IFCONFIG"
+IFCONFIG=$(sed -n '1h; 1!H; ${g;s/\n /\\ /g;p}' <<< "$IFCONFIG")
+IFACESETH=($(sed -n 's/^\([^ ]\+\)[ ]\+Link encap:Ethernet.*/\1/p; s#^[0-9]\+: \([^ :]\+\):.* link/ether.*#\1#p' <<< "$IFCONFIG"))
 if (( ${#IFACESETH[@]} > 0 )); then
     IFETHMATCHES=${IFACESETH[@]}
     IFACEMATCHES="($IFACEMATCHES|(${IFETHMATCHES// /|}))"
@@ -211,7 +216,11 @@ printf "\n##### iwconfig ##########################\n\n"
 iwconfig
 
 printf "\n##### route #############################\n\n"
-route -n
+if [ -x /sbin/route ]; then
+    route -n
+else
+    ip route show
+fi
 
 printf "\n##### resolv.conf #######################\n\n"
 grep -v '^#' /etc/resolv.conf
@@ -379,8 +388,8 @@ RESULTS=$(cat -s "$OUTPUTDIR/$FILEBASE.txt")$'\n'
 ORIGIFS="$IFS"
 IFS=$'\n'
 
-IFACESIDS=($(sed -n "s/^\([^ ]\+\)[ ]\+.*HWaddr.*/'\1'/p" <<< "$IFCONFIG"))
-IFACESMACS=($(sed -n 's/^[^ ]\+[ ]\+.*HWaddr \([^ ]\+\)[ ]*/\1/p' <<< "$IFCONFIG"))
+IFACESIDS=($(sed -n "/\([[:alnum:]]\{2\}:\)\{5\}[[:alnum:]]\{2\}/ {/\(00:\)\{5\}00/! {s/^\([^ ]\+\)[ ]\+.*HWaddr.*/'\1'/p; s/^[0-9]\+: \([^ :]\+\):.*/'\1'/p}}" <<< "$IFCONFIG"))
+IFACESMACS=($(sed -n '/\(00:\)\{5\}00/! s#.*\(HWaddr\|link/[^ ]\+\) \(\([[:alnum:]]\{2\}:\)\{5\}[[:alnum:]]\{2\}\).*#\2#p' <<< "$IFCONFIG"))
 IFACESIP6S=($(ip6-mac "${IFACESMACS[@]}"))
 
 WLAPSIWLIDS=($(sed -n "/^[ ]*Cell [0-9]\+/,/^[ ]*ESSID:/ {/^[ ]*Cell [0-9]\+/h; /^[ ]*ESSID:/ {H;g;s/^[ ]*Cell 0\?\([0-9]\+\).*ESSID:\"\(.*\)\"$/'\2' [AC\1]/p}}" <<< "$IWLISTSCAN"))
