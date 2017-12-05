@@ -25,7 +25,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 
-SCRIPTDATE="2017-03-25 08:04 +0100"
+SCRIPTDATE="2017-12-05 04:13 +0100"
 FILEBASE="wireless-info"
 OUTPUTDIR="$PWD"
 OUTPUTDIRFB="/tmp"
@@ -285,6 +285,14 @@ if [ -d /etc/NetworkManager/system-connections ]; then
 else
     echo "No NetworkManager profiles found."
 fi
+
+printf "\n##### Netplan config ####################\n\n"
+for NPLANFILE in $(find /{lib,etc,run}/netplan -name "*.yaml" 2> /dev/null | sort); do
+    NPLANFLCNT=$(egrep -v '^(#|$)' $NPLANFILE)
+    if [ -n "$NPLANFLCNT" ]; then
+	printf "[%s]\n%s\n\n" "$NPLANFILE" "$NPLANFLCNT"
+    fi
+done
 
 printf "\n##### iw reg get ########################\n\n"
 if [ -x /sbin/iw ]; then
