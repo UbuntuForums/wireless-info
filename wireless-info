@@ -25,7 +25,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 
-SCRIPTDATE="2017-12-05 04:13 +0100"
+SCRIPTDATE="2018-01-10 21:04 +0100"
 FILEBASE="wireless-info"
 OUTPUTDIR="$PWD"
 OUTPUTDIRFB="/tmp"
@@ -196,7 +196,12 @@ LSMOD=$(lsmod | egrep "(^|[[:punct:] ])($MODMATCHES|$LSMODMATCHES)[^[:punct:] ]*
 echo "$LSMOD"
 
 printf "\n##### interfaces ########################\n\n"
-sed '/^#/d;s/^wpa-psk [[:graph:]]\+/wpa-psk <WPA key removed>/' /etc/network/interfaces
+for IFACESFILE in $(find /etc/network/interfaces{,.d} -type f 2> /dev/null | sort); do
+    IFACESFLCNT=$(sed '/^#/d;s/^wpa-psk [[:graph:]]\+/wpa-psk <WPA key removed>/' $IFACESFILE)
+    if [ -n "$IFACESFLCNT" ]; then
+	printf "[%s]\n%s\n\n" "$IFACESFILE" "$IFACESFLCNT"
+    fi
+done
 
 printf "\n##### ifconfig ##########################\n\n"
 if [ -x /sbin/ifconfig ]; then
