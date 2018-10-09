@@ -25,7 +25,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 
-SCRIPTDATE="2018-01-10 21:04 +0100"
+SCRIPTDATE="2018-10-06 01:16 -0500"
 FILEBASE="wireless-info"
 OUTPUTDIR="$PWD"
 OUTPUTDIRFB="/tmp"
@@ -33,7 +33,7 @@ OUTPUTDIRFB="/tmp"
 MODMATCHES="(air|ar5|at7|ath[^3]?|b43|bcma|brcm|carl|ipw|iwl|ndis|r(818|8192[eu]|871|92su)|8(188|189|192|723|812)[acde][esu]|rt[23567]|rtl|ssb|wl|(cfg|mac)80211)"
 LSMODMATCHES="(wmi|(dell|ideapad)[-_]laptop)"
 IFACEMATCHES="(wlan[0-9]|eth[0-9])"
-DMESGMATCHES="(firmware|[nN]etwork)"
+DMESGMATCHES="(firmware|[nN]etwork|sdio|SDIO)"
 NMPROFMATCHES="\(\[connection\]\|id=\|type=\|permissions=\|autoconnect=\|\[802-11-wireless\]\|\[wifi\]\|ssid=\|bssid=\|mac-address\(-blacklist\)\?=\|mtu=\|\[802-1x\]\|[[:graph:]]*ca-certs\?=\|\[ipv[46]\]\|method=\)"
 
 DMESGEXCL="apparmor|(cfg|mac)80211"
@@ -191,6 +191,13 @@ fi
 printf "\n##### rfkill ############################\n\n"
 rfkill list all
 
+printf "\n##### secure boot #######################\n\n"
+if [ -x /usr/bin/mokutil ]; then
+    mokutil --sb-state
+else
+    echo "'mokutil' is not installed (package \"mokutil\")."
+fi
+
 printf "\n##### lsmod #############################\n\n"
 LSMOD=$(lsmod | egrep "(^|[[:punct:] ])($MODMATCHES|$LSMODMATCHES)[^[:punct:] ]*([[:punct:] ]|$)")
 echo "$LSMOD"
@@ -228,6 +235,7 @@ else
 fi
 
 printf "\n##### resolv.conf #######################\n\n"
+stat -c "[%a %U %N]" /etc/resolv.conf
 grep -v '^#' /etc/resolv.conf
 
 printf "\n##### network managers ##################\n\n"
@@ -258,12 +266,13 @@ fi
 printf "\n##### NetworkManager.state ##############\n\n"
 cat -s /var/lib/NetworkManager/NetworkManager.state
 
-printf "\n##### NetworkManager.conf ###############\n\n"
-grep -v '^#' /etc/NetworkManager/NetworkManager.conf
-if [ -f /etc/NetworkManager/nm-system-settings.conf ]; then
-    printf "\nnm-system-settings.conf (used up to Ubuntu 10.04):\n\n"
-    grep -v '^#' /etc/NetworkManager/nm-system-settings.conf
-fi
+printf "\n##### NetworkManager config #############\n\n"
+for NMCONFFILE in $(find /{etc,usr/lib}/NetworkManager/{NetworkManager.conf,conf.d} -name "*.conf" 2> /dev/null | sort); do
+    NMCONFCNT=$(egrep -v '^(#|$)' $NMCONFFILE)
+    if [ -n "$NMCONFCNT" ]; then
+	printf "[[%s]]\n%s\n\n" "$NMCONFFILE" "$NMCONFCNT"
+    fi
+done
 
 printf "\n##### NetworkManager profiles ###########\n\n"
 if [ -d /etc/NetworkManager/system-connections ]; then
