@@ -239,7 +239,7 @@ else
 fi
 
 printf "\n##### resolv.conf #######################\n\n"
-stat -c "[%a %U %N]" /etc/resolv.conf
+stat -c "[%a %U %N]" /etc/resolv.conf |iconv -f utf-8 -t ascii//translit
 grep -v '^#' /etc/resolv.conf
 
 printf "\n##### network managers ##################\n\n"
