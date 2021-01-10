@@ -25,7 +25,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 
-SCRIPTDATE="2018-10-22 05:34 +0200"
+SCRIPTDATE="2021-1-10 05:34 +0200"
 FILEBASE="wireless-info"
 OUTPUTDIR="$PWD"
 OUTPUTDIRFB="/tmp"
@@ -268,7 +268,7 @@ else
 fi
 
 printf "\n##### NetworkManager.state ##############\n\n"
-cat -s /var/lib/NetworkManager/NetworkManager.state
+"$SUDO" cat -s /var/lib/NetworkManager/NetworkManager.state
 
 printf "\n##### NetworkManager config #############\n\n"
 for NMCONFFILE in $(find /{etc,usr/lib}/NetworkManager/{NetworkManager.conf,conf.d} -name "*.conf" 2> /dev/null | sort); do
@@ -400,7 +400,7 @@ for UDEVRLFILE in $(find /etc/udev/rules.d -name "*net*.rules" | sort); do
 done
 
 printf "\n##### dmesg #############################\n\n"
-dmesg | tail -n 100 | egrep "[[:punct:] ]($MODMATCHES|$IFACEMATCHES|$DMESGMATCHES)[^[:punct:] ]*[[:punct:] ]" | egrep -v "$DMESGEXCL" | uniq -cf 2 | sed 's/^[ ]\+1[ ]\+//;s/^[ ]\+\([0-9]\+\)[ ]\+\(.\+\)$/\2 (repeated \1 times)/'
+"$SUDO" dmesg | tail -n 100 | egrep "[[:punct:] ]($MODMATCHES|$IFACEMATCHES|$DMESGMATCHES)[^[:punct:] ]*[[:punct:] ]" | egrep -v "$DMESGEXCL" | uniq -cf 2 | sed 's/^[ ]\+1[ ]\+//;s/^[ ]\+\([0-9]\+\)[ ]\+\(.\+\)$/\2 (repeated \1 times)/'
 
 printf "\n########## wireless info END ############\n\n"
 
