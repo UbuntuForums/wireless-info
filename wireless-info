@@ -25,7 +25,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 
-SCRIPTDATE="2018-10-22 05:34 +0200"
+SCRIPTDATE="2020-1-25 05:34 +0200"
 FILEBASE="wireless-info"
 OUTPUTDIR="$PWD"
 OUTPUTDIRFB="/tmp"
@@ -37,7 +37,7 @@ DMESGMATCHES="(firmware|[nN]etwork|sdio|SDIO)"
 NMPROFMATCHES="\(\[connection\]\|id=\|type=\|permissions=\|autoconnect=\|\[802-11-wireless\]\|\[wifi\]\|ssid=\|bssid=\|mac-address\(-blacklist\)\?=\|mtu=\|\[802-1x\]\|[[:graph:]]*ca-certs\?=\|\[ipv[46]\]\|method=\)"
 
 DMESGEXCL="apparmor|(cfg|mac)80211"
-MODINFOEXCL="alias"
+MODINFOINCL="filename|license|description|depends|retpoline|intree|name|vermagic|parm"
 MODPROBEXCL="(alsa-base|blacklist-(firewire|framebuffer|modem|oss|watchdog)|fglrx|nvidia|fbdev|bumblebee)"
 PMUTILSEXCL="/etc/pm/(power.d/(95hdparm-apm|intel-audio-powersave|sata_alpm)|sleep.d/(10_grub-common|10_unattended-upgrades.*|novatel_3g.*))"
 
@@ -268,7 +268,7 @@ else
 fi
 
 printf "\n##### NetworkManager.state ##############\n\n"
-cat -s /var/lib/NetworkManager/NetworkManager.state
+"$SUDO" cat -s /var/lib/NetworkManager/NetworkManager.state
 
 printf "\n##### NetworkManager config #############\n\n"
 for NMCONFFILE in $(find /{etc,usr/lib}/NetworkManager/{NetworkManager.conf,conf.d} -name "*.conf" 2> /dev/null | sort); do
@@ -356,7 +356,7 @@ fi
 printf "\n##### module infos ######################\n\n"
 MODULES=$(egrep -o "^$MODMATCHES[^ ]*" <<< "$LSMOD")
 for MODULE in $MODULES; do
-    MODINFO=$(modinfo $MODULE | egrep -v "^$MODINFOEXCL:")
+    MODINFO=$(modinfo $MODULE | egrep -i "^$MODINFOINCL:")
     printf "[%s]\n%s\n\n" "$MODULE" "$MODINFO"
 done
 
@@ -400,7 +400,7 @@ for UDEVRLFILE in $(find /etc/udev/rules.d -name "*net*.rules" | sort); do
 done
 
 printf "\n##### dmesg #############################\n\n"
-dmesg | tail -n 100 | egrep "[[:punct:] ]($MODMATCHES|$IFACEMATCHES|$DMESGMATCHES)[^[:punct:] ]*[[:punct:] ]" | egrep -v "$DMESGEXCL" | uniq -cf 2 | sed 's/^[ ]\+1[ ]\+//;s/^[ ]\+\([0-9]\+\)[ ]\+\(.\+\)$/\2 (repeated \1 times)/'
+"$SUDO" dmesg | tail -n 100 | egrep "[[:punct:] ]($MODMATCHES|$IFACEMATCHES|$DMESGMATCHES)[^[:punct:] ]*[[:punct:] ]" | egrep -v "$DMESGEXCL" | uniq -cf 2 | sed 's/^[ ]\+1[ ]\+//;s/^[ ]\+\([0-9]\+\)[ ]\+\(.\+\)$/\2 (repeated \1 times)/'
 
 printf "\n########## wireless info END ############\n\n"
 
