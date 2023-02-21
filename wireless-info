@@ -460,10 +460,10 @@ if (( $(stat -c %s "$OUTPUTDIR/$FILEBASE.txt") > 19968 )); then
 	dialog_error "Results exceed the 19.5 kB size limit for \".txt\" attachments${DIALOGBREAK}on the Ubuntu Forums, but archive could not be created.${TERMOUT+\n}"
 fi
 
-if [ -x /usr/bin/pastebinit ] && ping -nc 3 -w 6 -i 0.2 paste.ubuntu.com > /dev/null 2>&1; then
+if [ -x /usr/bin/nc ] && ping -nc 3 -w 6 -i 0.2 termbin.com > /dev/null 2>&1; then
     PASTEBIN=$(dialog_question "Do you also want to post them${DIALOGBREAK}to your default 'pastebinit' provider?")
     if [[ ! $PASTEBIN =~ ^no?$ ]]; then
-	PASTERESULT=$(pastebinit -i "$OUTPUTDIR/$FILEBASE.txt" -f text 2>&1) && PASTESUCCESS="yes"
+	PASTERESULT=$(cat "$OUTPUTDIR/$FILEBASE.txt"|nc termbin.com 9999) && PASTESUCCESS="yes"
 	if [ "$PASTESUCCESS" = "yes" ]; then
 	    dialog_info "${TERMOUT+\n}Pastebin successful:\n\n${PASTERESULT}${TERMOUT+\n}"
 	else
