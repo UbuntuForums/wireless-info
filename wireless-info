@@ -176,7 +176,7 @@ else
 fi
 
 printf "\n##### lspci #############################\n\n"
-lspci -nnk | grep -iA 2 '^[^[:space:]].*net' | sed '/^--$/d; /^[^[:space:]]/ i\\'
+lspci -nnk | grep -iA 3 '^[^[:space:]].*net' | sed '/^--$/d; /^[^[:space:]]/ i\\'
 
 printf "\n##### lsusb #############################\n\n"
 lsusb
