@@ -202,6 +202,9 @@ printf "\n##### lsmod #############################\n\n"
 LSMOD=$(lsmod | egrep "(^|[[:punct:] ])($MODMATCHES|$LSMODMATCHES)[^[:punct:] ]*([[:punct:] ]|$)")
 echo "$LSMOD"
 
+printf "\n##### dkms #############################\n\n"
+dkms status
+
 printf "\n##### interfaces ########################\n\n"
 for IFACESFILE in $(find /etc/network/interfaces{,.d} -type f 2> /dev/null | sort); do
     IFACESFLCNT=$(sed '/^#/d;s/^wpa-psk [[:graph:]]\+/wpa-psk <WPA key removed>/' $IFACESFILE)
