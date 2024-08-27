@@ -25,7 +25,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 
-SCRIPTDATE="2023-3-23 17:34 -0700"
+SCRIPTDATE="2024-8-27 3:55 -0700"
 FILEBASE="wireless-info"
 OUTPUTDIR="$PWD"
 OUTPUTDIRFB="/tmp"
@@ -311,7 +311,7 @@ printf "\n##### Netplan config ####################\n\n"
 for NPLANFILE in $(find /{lib,etc,run}/netplan -name "*.yaml" 2> /dev/null | sort); do
     NPLANFLCNT=$(egrep -v '^(#|$)' $NPLANFILE)
     if [ -n "$NPLANFLCNT" ]; then
-	printf "[%s]\n%s\n\n" "$NPLANFILE" "$NPLANFLCNT"| grep -v password
+	printf "[%s]\n%s\n\n" "$NPLANFILE" "$NPLANFLCNT"| grep -v "password|mac|MAC"
     fi
 done
 
