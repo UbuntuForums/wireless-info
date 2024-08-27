@@ -311,7 +311,7 @@ printf "\n##### Netplan config ####################\n\n"
 for NPLANFILE in $(find /{lib,etc,run}/netplan -name "*.yaml" 2> /dev/null | sort); do
     NPLANFLCNT=$(egrep -v '^(#|$)' $NPLANFILE)
     if [ -n "$NPLANFLCNT" ]; then
-	printf "[%s]\n%s\n\n" "$NPLANFILE" "$NPLANFLCNT"| grep -v "password|mac|MAC"
+	printf "[%s]\n%s\n\n" "$NPLANFILE" "$NPLANFLCNT"| egrep -v "password|mac|MAC"
     fi
 done
 
