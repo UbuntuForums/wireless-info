@@ -25,12 +25,12 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 
-SCRIPTDATE="2020-1-25 05:34 +0200"
+SCRIPTDATE="2024-8-27 3:55 -0700"
 FILEBASE="wireless-info"
 OUTPUTDIR="$PWD"
 OUTPUTDIRFB="/tmp"
 
-MODMATCHES="(air|ar5|at7|ath[^3]?|b43|bcma|brcm|carl|ipw|iwl|ndis|r(818|8192[eu]|871|92su)|8(188|189|192|723|812)[acde][esu]|rt[23567]|rtl|ssb|wl|(cfg|mac)80211)"
+MODMATCHES="(air|ar5|at7|ath[^3]?|b43|bcma|brcm|carl|ipw|iwl|ndis|r(818|8192[eu]|871|92su)|8(188|189|192|723|812)[acde][esu]|rt[23567]|rtl|ssb|wl|rtw8|(cfg|mac)80211)"
 LSMODMATCHES="(wmi|(dell|ideapad)[-_]laptop)"
 IFACEMATCHES="(wlan[0-9]|eth[0-9])"
 DMESGMATCHES="(firmware|[nN]etwork|sdio|SDIO)"
@@ -176,7 +176,7 @@ else
 fi
 
 printf "\n##### lspci #############################\n\n"
-lspci -nnk | grep -iA 2 '^[^[:space:]].*net' | sed '/^--$/d; /^[^[:space:]]/ i\\'
+lspci -nnk | grep -iA 3 '^[^[:space:]].*net' | sed '/^--$/d; /^[^[:space:]]/ i\\'
 
 printf "\n##### lsusb #############################\n\n"
 lsusb
@@ -193,7 +193,7 @@ rfkill list all
 
 printf "\n##### secure boot #######################\n\n"
 if [ -x /usr/bin/mokutil ]; then
-    mokutil --sb-state
+    mokutil --sb
 else
     echo "'mokutil' is not installed (package \"mokutil\")."
 fi
@@ -201,6 +201,9 @@ fi
 printf "\n##### lsmod #############################\n\n"
 LSMOD=$(lsmod | egrep "(^|[[:punct:] ])($MODMATCHES|$LSMODMATCHES)[^[:punct:] ]*([[:punct:] ]|$)")
 echo "$LSMOD"
+
+printf "\n##### dkms #############################\n\n"
+dkms status
 
 printf "\n##### interfaces ########################\n\n"
 for IFACESFILE in $(find /etc/network/interfaces{,.d} -type f 2> /dev/null | sort); do
@@ -308,7 +311,7 @@ printf "\n##### Netplan config ####################\n\n"
 for NPLANFILE in $(find /{lib,etc,run}/netplan -name "*.yaml" 2> /dev/null | sort); do
     NPLANFLCNT=$(egrep -v '^(#|$)' $NPLANFILE)
     if [ -n "$NPLANFLCNT" ]; then
-	printf "[%s]\n%s\n\n" "$NPLANFILE" "$NPLANFLCNT"
+	printf "[%s]\n%s\n\n" "$NPLANFILE" "$NPLANFLCNT"| egrep -v "password|mac|MAC"
     fi
 done
 
@@ -460,10 +463,10 @@ if (( $(stat -c %s "$OUTPUTDIR/$FILEBASE.txt") > 19968 )); then
 	dialog_error "Results exceed the 19.5 kB size limit for \".txt\" attachments${DIALOGBREAK}on the Ubuntu Forums, but archive could not be created.${TERMOUT+\n}"
 fi
 
-if [ -x /usr/bin/pastebinit ] && ping -nc 3 -w 6 -i 0.2 paste.ubuntu.com > /dev/null 2>&1; then
+if [ -x /usr/bin/nc ] && ping -nc 3 -w 6 -i 0.2 termbin.com > /dev/null 2>&1; then
     PASTEBIN=$(dialog_question "Do you also want to post them${DIALOGBREAK}to your default 'pastebinit' provider?")
     if [[ ! $PASTEBIN =~ ^no?$ ]]; then
-	PASTERESULT=$(pastebinit -i "$OUTPUTDIR/$FILEBASE.txt" -f text 2>&1) && PASTESUCCESS="yes"
+	PASTERESULT=$(cat "$OUTPUTDIR/$FILEBASE.txt"|nc termbin.com 9999) && PASTESUCCESS="yes"
 	if [ "$PASTESUCCESS" = "yes" ]; then
 	    dialog_info "${TERMOUT+\n}Pastebin successful:\n\n${PASTERESULT}${TERMOUT+\n}"
 	else
