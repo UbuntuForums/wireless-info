@@ -1,0 +1,674 @@
+#!/bin/bash
+
+## MAFoElffen, <mafoelffen@ubuntu.com>, 2021.08.19
+## Version 00.04, 2021.08.31
+## Contributers:
+##     sudodus <nio.wiklund@gmail.com>, 2021.08.25
+##     oldfred, 2021.08.20
+##     Doug S,  2021.08.22
+##     TheFu,   2021.08.24
+## Filename: support-info
+## Description: Report Finds Machine Hardware Related Information.
+## Purpose:     For support use at "UbuntuForums.org".
+#########################################################################
+#  Copyright (c) 2012, 2021
+#
+#  GNU General Public License (GPL-3.0-or-later)
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+#
+
+
+########################################################################
+#### Variables
+########################################################################
+# Versioning
+version="Version: 00.04, Script Date: 2021.08.31"
+arg1=$1
+# Set Report filename and path to
+report="$HOME/support-info.txt"
+# Set locale language settings
+LANG=C
+# Set a pretty screen decoration for displaying the report onscreen
+blueback="\0033[1;37;44m"
+redback="\0033[1;37;41m"
+resetvid="\0033[0m"
+# Check boot mode
+boot_mode=$( [ -d /sys/firmware/efi ] && echo "UEFI Firmware mode" || echo "Legacy mode (alias CSM alias BIOS mode)" )
+# Flag for if inxi is installed or not
+inxi_installed="true"
+less_status="less"
+up_status= "true"
+# Report timestamp
+startt="$(date '+%F  %T %Z (%z)')"
+
+########################################################################
+#### Functions:
+########################################################################
+function CheckRoot()
+{
+    clear;
+    ## Check if ran as root
+    if [[ "$EUID" == 0 ]]
+    then 
+        echo -e "$redback Do not run this script with sudo or as root$resetvid"
+        exit
+    else
+        sudo echo "Running Script: ${0##*/} ..."
+    fi
+}
+
+function CheckVersion()
+{
+    # Versioning: At the commandline: [<ScriptName> -v] returns <VersionInfo>, then exits.
+    if [[ "$arg1" == "-v" ]]
+    then
+        echo -e "$version";
+        exit;
+    fi
+}
+
+function CheckPrerequisites()  ## TODO ## Testing replacement...
+{
+    echo "Checking for prerequisite packages used by this script..." # The LiveCD has this preinstalled
+    # Required packages
+    echo -e "Please ignore this warning from APT. It is normal, because we 'are' calling it from a script."
+    REQUIRED=$(apt list --installed 2> /dev/null | grep -i inxi 2> /dev/null)
+    SUB1="installed"
+    if [[ $REQUIRED == *"$SUB1"* ]]; then
+        echo -e "Required prerequisites are already installed."
+        inxi_installed="true"
+    else
+        echo -e "$blueback 'inxi' writes an important part of the output from this script $resetvid"
+        nl
+        read -p "Do you allow installation of 'inxi' from the repository 'universe' (y/N) " ans
+        if [ "${ans,}" == "y" ]
+        then
+             GetPingStatus "www.ubuntu.com"
+             if [[ "$return_status" == "true" ]]
+             then
+                 sudo add-apt-repository universe
+                 sudo apt update
+                 sudo apt install -y inxi
+                 if [ $? -eq 0 ]
+                 then
+                     inxi_installed="true"
+                 else
+                     echo -e "$redback 'inxi' failed to install from APT. Continuing without it. $resetvid"
+                     inxi_installed="false"
+                fi
+             else
+                echo -e "$redback There is no internet connection to be able to install 'inxi'. Continuing without it.$resetvid"
+                inxi_installed="false"
+             fi
+        else
+           echo -e "$redback You get much more information when 'inxi' is installed $resetvid"
+           inxi_installed="false"
+           sleep 3
+        fi    
+    fi
+}
+
+function CheckPrerequisites_Proposed()   # Prototype
+{
+    ## Check if all necessary programs are available. ##
+    # Programs that are in /bin or /usr/bin.
+    Programs='
+        sudo
+    	cat
+    	grep
+    	egrep
+    	awk
+    	free
+    	gsettings
+    	gzip
+    	ls
+    	rm
+    	sed
+    	ping
+    	id
+    	ip
+    	hostname
+    	lsblk
+    	lsusb
+    	sleep
+    	sort
+    	pastebinit
+    	who'
+
+    	#removed for testing: inxi
+
+
+    # Programs that are in /usr/sbin or /sbin.
+    Programs_SBIN='
+    	fdisk
+    	lshw'
+
+    Check_Prog=1;
+
+    for Program in ${Programs} ${Programs_SBIN}; do
+      if [ $(type ${Program} > /dev/null 2>&1 ; echo $?) -ne 0 ]
+      then
+         echo "\"${Program}\" could not be found." ; # >&2;
+         Check_Prog=0;
+      fi
+    done
+
+    if [ "Check_Prog" == 0 ]
+    then
+        nl
+        echo -e "Required basic Linux utilities not found.";
+        echo -e "Please install the missing programs listed above before rerunning script.";
+        exit;
+    else
+       echo -e "All required programs installed...";
+       sleep 1;
+    fi
+}
+
+function RmOldReport()  
+{
+  /bin/rm -f $report
+}
+
+function UserInput()
+{
+    # User Input for Problem and Description
+    width=$(tput cols)
+    str=;for ((i=1;i<=$width;i++));do str="${str}_";done
+    echo -e "$str"
+    nl
+    echo -e "Please provide some \"Basic Information\"..."
+    read -p "What is the Main Complaint (summarized)? " main_complaint
+    read -p "Describe the Problem: " problem_description
+    clear
+}
+
+function GetMachineInfo()
+{
+    inxi_installed=true  # debug just to test without using
+    if [[ "$inxi_installed" == "true" ]]
+    then        
+        nl
+        #echo -e "${setansi}---------- General computers specs from 'inxi':$ransi"
+        #nl
+        GetCPU
+        GetDmi
+        # $inxi_cmd -xx -CM
+        GetMem
+        GetNetworkingInfo
+        GetFQDN
+    else
+        #echo -e "${setansi}---------- General computers specs from script:$ransi"
+        #nl
+        GetCPU
+        GetDmi
+        GetMem
+        GetNetworkingInfo
+        GetFQDN
+    fi
+    nl 
+}
+
+function GetCPU()
+{
+    echo -e "${setansi}---------- General computer specs:$ransi"
+    nl
+    echo -e "  --- Computer/CPU Information --- "
+    $lshw_cmd | sed '/*-core/,$ d'
+    nl
+}
+
+function GetDmi()
+{
+    smbios_compliant="/sys/class/dmi/id/"
+    echo -e "    --- SMBIOS Information"
+    if [ -d $smbios_compliant ]
+    then
+        bios_vendor=$(sudo head -n 1 $smbios_compliant"bios_vendor")
+        bios_version=$(sudo head -n 1 $smbios_compliant"bios_version" | sed 's/\x20//g')
+        # bios_release=$(sudo head -n 1 $smbios_compliant"bios_release")
+        board_vendor=$(sudo head -n 1 $smbios_compliant"board_vendor")
+        board_name=$(sudo head -n 1 $smbios_compliant"board_name")
+        board_version=$(sudo head -n 1 $smbios_compliant"board_version")
+        board_serial=$(sudo head -n 1 $smbios_compliant"board_serial")
+        board_asset_tag=$(sudo head -n 1 $smbios_compliant"board_asset_tag")
+        if [ "$board_version" == "1234567890" ]
+        then
+            board_version=""
+        fi
+        if [ "$less_status" != "less" ]
+        then
+          board_serial="[REMOVED]"
+        fi
+        echo -e 'BIOS Vender: \t' $bios_vendor
+        echo -e 'BIOS Version: \t' $bios_version  # '\t\tBIOS RElease:\t' $bios_release
+        echo -e 'Board Vender: \t' $board_vendor '\t\tBoard Name: \t' $board_name $board_version
+        echo -e 'Board Serial: \t' $board_serial '\t\tBoard Asset Tag:' $board_asset_tag
+    else
+      echo -e "No SMBIOS information found"
+    fi
+    nl
+}
+
+function GetMem()
+{
+    echo -e "${setansi}---------- Memory Information:$ransi"
+    mem_stats=$(free -h)
+    echo -e "$mem_stats"
+    nl
+}
+
+function GetUsb()
+{
+    echo -e "${setansi}---------- USB Information:$ransi"
+    usb_info=$(lsusb -t -vv)
+    echo -e "$usb_info"
+    nl
+}
+
+function GetNetworkingInfo()
+{
+    GetIP
+    CheckIpUp silent
+    if [ "$up_status" == "true" ]
+    then
+        GetInternetStatus
+    else
+        echo -e "  --- Internet Connection Status --- "
+        echo -e "Skipped getting Internet Status. Connection: $up_status"
+        nl
+    fi
+    CheckIpUp show
+}
+
+function GetInternetStatus()
+{
+    ping -c 1 www.google.com > /dev/null
+    pingStatus=$?
+    echo -e "  --- Internet Connection Status --- "
+    if [ $pingStatus == 0 ]
+    then 
+        echo -e "Connected to Internet with DNS"
+    else 
+        echo -e "Cannot reach internet by DNS"
+        ping -c 1 8.8.8.8 > /dev/null
+        pingStatus=$?
+        if pingStatus [ $pingStatus == 0 ]
+        then
+            echo -e "Can reach the internet without DNS"
+        else
+            echo -e "Cannot reach internet by IP..."
+        fi
+        nl
+    fi    
+}
+
+function GetPingStatus()
+{
+    # Takes arg as IP or URL. Returns psuedo boolean $return_status.
+    ping -c 1 $1 > /dev/null
+    pingStatus=$?
+    if [ $pingStatus == 0 ]
+    then 
+        return_status="true"
+    else 
+        return_status="false"
+    fi    
+}
+
+function GetIP()
+{
+    echo -e "${setansi}---------- IP Adress Information:$ransi"
+    echo -e "  --- IP Adress Information --- "
+    # Grab IP adress information
+    if [ "$less_status" == "less" ]
+    then
+        ip_addr=$(ip addr | grep -e '^[[:space:][1-9]:' -e 'inet.')
+        echo -e "$ip_addr"
+    else
+        ip_addr=$(ip addr | grep -e '^[[:space:][1-9]:' -e 'inet.' | sed '/inet\s/ s/inet\s.*/inet [REMOVED]/g' | sed '/inet6\s.*/ s/inet6\s.*/inet6 [REMOVED]/g')
+        echo -e "$ip_addr"
+    fi
+    nl
+}
+
+function CheckIpUp()
+{
+    # Check to see if an exposed network device is up before going out to LAN
+    show_silent=$1        # show or silent. Eval is on: "show"
+    ip_devices_up=$(ip addr | grep -e '^[[:space:][1-9]:.*UP,LOWER_UP' | sed 's/.*virb.*:.*\|.*lo:.*LOOPBACK.*//g' | sed -e /^$/d)
+    if [ "$show_silent" == "show" ]
+    then
+        echo -e "  --- Network Device Status Summary ---  "
+        if [ "$ip_devices_up" == "" ]
+        then
+            echo -e "No Network Devices up..."
+            nl
+            up_status="false"
+        else
+            echo -e "These Network Devices are up:"
+            echo -e "$ip_devices_up"
+            nl
+            up_status="true"
+        fi
+    elif [ "$show_silent" == "silent" ]
+    then
+        if [ "$ip_devices_up" == "" ]
+        then
+            up_status="false"
+        else
+            up_status="true"
+        fi
+    else
+        echo -e "Debug: 'show_silent' call out of range $show_silent"
+    fi
+}
+
+function GetFQDN()
+{
+    echo -e "  --- Hostname ---  "
+    if [ "$less_status" == "less" ]
+    then
+        host_name=$(hostname --fqdn)
+    else
+        host_name=$(hostname | sed 's/\..*//g')
+    fi
+    echo -e "The 'Hostname' of the computer system is: $host_name"
+    nl
+}
+
+function GetDiskInfo()
+{
+    echo -e "${setansi}---------- File system specs from 'df -h':$ransi"
+    df -hT -x tmpfs -x devtmpfs | grep -v '/snap/'
+    nl
+    echo -e "${setansi}---------- Disk/Partition Information From 'fdisk':$ransi"
+    {sudo fdisk -l | sed '/\/dev\/loop/,+3 d'| uniq} 2> /dev/null
+    nl
+    echo -e "${setansi}---------- Disk/Partition Information From 'lsblk':$ransi"
+    lsblk -o NAME,SIZE,FSTYPE,LABEL,MOUNTPOINT,MODEL | grep -v '/snap/'
+    echo -e "   ------- 'lsblk' information continued ..."
+    lsblk -o NAME,HOTPLUG,PARTUUID,UUID | grep -v 'loop'
+    nl
+    echo -e "${setansi}---------- Mount Details of '/etc/fstab':$ransi"
+    egrep -v '#' /etc/fstab
+    nl
+    echo -e "${setansi}---------- Current Mount Details of 'mount':$ransi"
+    mount | grep '^/dev' | sort
+    nl
+}
+
+function GetGraphicsEnv() 
+{
+    echo -e "${setansi}---------- Video Details from 'lshw':$ransi"
+    lshw_data=$(sudo lshw -C video)
+    if [ "$lshw_data" == "" ]
+    then
+        echo -e "No conventional GPU detected. May be using a Frame Buffer."
+    else
+        echo -e "$lshw_data"
+    fi
+    echo -e "   --- Graphics Environment Continued ----" 
+    if [ $XDG_CURRENT_DESKTOP ] 
+    then 
+        echo -e "The Current Configured Destop is: $XDG_CURRENT_DESKTOP " 
+    else
+        echo -e "The Current Configured Desktop is: <Not Populated> " 
+    fi
+    if [ $DESKTOP_SESSION ]
+    then
+        echo -e "The Current Desktop Session is: $DESKTOP_SESSION " 
+    else
+        echo -e "The Current Desktop Session is: <Not Populated> " 
+    fi
+    if [ $XDG_SESSION_TYPE ]
+    then
+        echo -e "The Current Session Type is: $XDG_SESSION_TYPE " 
+    else
+        session_type=$(ps -e | awk '$2 ~ /^tty/ && $4 ~ /^x11/' || awk '$2 ~ /^tty/ && $4 ~ /^gdm-wayland-ses/ {print $4}')
+        if [ $session_type ]
+        then
+            echo -e "The Current Session Type is: $session_type " 
+        else
+            echo -e "The Current Session Type is: <No Graphics Session Type Loaded> " 
+        fi
+    fi
+    if [ -f /etc/X11/default-display-manager ]
+    then
+        display_manager=$(egrep /usr/sbin/ /etc/X11/default-display-manager | sed 's/\/usr\/sbin\///g')
+        echo "The Current Display Manager is: $display_manager" 
+    else
+        echo "The Current Display Manager is: <Not Configured>" 
+    fi
+    desktop_theme=$(gsettings get org.gnome.desktop.interface gtk-theme)
+    if [ $desktop_theme ]
+    then
+        echo -e "The Current Desktop Theme: $desktop_theme" 
+    else
+        echo -e "The Current Desktop Theme: <None Configured>" 
+    fi 
+    virt_ttys=$(ps -e | awk '$2 ~ /^tty/ && $2 !~ /^ttyS/ {print "\t" $2 "\t" $4}')
+    echo -e "The Current Virtual TTYs being used are:" 
+    echo -e "\tTTY#\tUsed By" 
+    echo -e "$virt_ttys" 
+    nl
+}
+
+function GetRepositories()
+{
+    echo -e "${setansi}---------- Repository Information:$ransi"
+    nl
+    sources=$(grep -v '#' /etc/apt/sources.list | sed -e /^$/d )
+    sourcesd=$(grep -v '#' /etc/apt/sources.list.d/* | sed -e /^$/d)
+    echo -e "Sources List:"
+    echo -e "$sources"
+    nl
+    echo -e "Sources List from SourcesD:"
+    echo -e "$sourcesd"
+    nl
+}
+
+function GetOtherDetails()
+{
+    echo -e "${setansi}---------- Other Details:$ransi"
+    echo -e "The computer boot mode was:         ${setansi} $boot_mode $ransi"
+    echo -e "The current kernel version is:      ${setansi} $(uname -r) $ransi"
+    echo -e "The current release description is: ${setansi} $(lsb_release -sd) $ransi"
+    nl
+    echo -e "Currently logged in User(s):"
+    who -H
+    nl
+    echo -en "The User running this script was: "
+    id -un
+    id
+    nl
+}
+
+function AdjustForLessStatus()
+{
+    if [ "$less_status" == "less" ]
+    then
+        setansi="$blueback"
+        ransi="$resetvid"
+        lshw_cmd='sudo lshw'
+        inxi_cmd='sudo inxi'
+        MessageView
+        MessageLess
+    else
+        setansi=""
+        ransi=""
+        lshw_cmd='sudo lshw -sanitize'
+        inxi_cmd='sudo inxi -zc 0'
+    fi
+}
+
+function ReportHeader()
+{
+    echo -e "Starting the 'support-info' Report: $startt"
+    echo -e '\tPart of the Ama-gi Project'    
+    echo -e '\t'$version
+    nl
+    echo -e "---------------------------------------------------------------"
+    echo -e "Main Complaint: $main_complaint"
+    echo -e "Problem Description:  $problem_description"
+}
+
+function MessageView()
+{
+    echo -e "This output should first be ${setansi}viewed by less${ransi}, then sent to a file"
+    nl
+}
+
+function MessageLess()
+{
+    # User Instructions for the 'less' utility
+    echo -e "You are using the viewer 'less'. Advance to a next page with the <SpaceBar> key. Navigate what has been displayed with the Left/Right/Up/Down Arrow, PageUp, PageDown, Home, or End keys."
+    nl
+    echo -e "Get more built-in help within 'less' with the <H> key."
+    echo -e "At any point while in 'less' or if you see this '(END)' prompt at the lower left of your screen, quit from 'less' to continue the script with the <q> key."
+    nl
+ }
+ 
+function ReportFooter()
+{
+    echo -e "${setansi}*** End Of Report ***$ransi"
+    if [ "$less_status" == "less" ]
+    then
+        MessageLess
+    fi
+}
+
+function nl() 
+{
+    echo -e ""
+}
+
+function Writer {
+    less_status="$1"
+    AdjustForLessStatus
+    ReportHeader
+    GetMachineInfo    
+    GetDiskInfo
+    GetUsb
+    GetGraphicsEnv
+    GetRepositories
+    GetOtherDetails
+    ReportFooter
+}
+
+function ProgressActive()
+{
+    # Warning... This is an made as an infinite loop "on purpose". Only call this if you 
+    # remember to send to the backgroung while capturing the PID... So you can kill it!
+    declare -a spinner=("\b|" "\b/" "\b-" "\b\\" "\b-")
+    
+    echo -ne '\t\t\t*'
+    while :
+    do
+        for spin in "${spinner[@]}"
+        do 
+            echo -ne $spin
+            sleep 0.2
+        done
+    done        
+}
+
+function Paster() 
+{
+    #    command: pastebinit -a $USER -i $HOME/support-info.txt" -b "paste.ubuntu.com" -t "support-info.txt"
+    #    returned: https://paste.ubuntu.com/p/SRZwqjHjJZ/
+    file=$1
+    target="paste.ubuntu.com"
+    linklog="${1%.*}-link.log"
+
+    echo -e "$blueback Sensitive data is [REMOVED] from the report file $resetvid"
+    read -p "Do you want to upload the report file fo '$target'? (y/N) " ans
+    if [ "${ans,}" == "y" ]
+    then
+        GetPingStatus "www.ubuntu.com"
+        if [ "$return_status" == "true" ]
+        then
+            echo "Uploading '$file' to '$target'"
+            echo -e "This may take 1-2 minutes..."
+            nl
+            ProgressActive &
+            pid_progressactive=$!  
+            return_url=$(pastebinit -a $USER -i $file -b "$target" -t "support-info.txt")
+            sudo kill $pid_progressactive
+            if [ $? -eq 0 ]
+            then
+                echo -e "Uploaded Report: ${startt}:" >> $linklog
+                echo -e "-------------------------------------"
+                echo -e "$blueback Upload successful $resetvid"
+                nl
+                echo -e "The link to the pastebin is saved in: $linklog"
+                nl
+                echo -e "View at: $return_url" | tee -a $linklog
+                nl
+            else
+                echo -e"$redback Upload failed $resetvid"
+                echo -e "Upload the file manually: 'copy & paste' to"
+                echo -e "https://paste.ubuntu.com/"
+            fi
+        else
+                echo -e" No connection to pastebin.ubuntu.com " | tee -a $linklog
+        fi
+    fi
+}
+
+
+
+########################################################################
+#### MAIN
+########################################################################
+## PreProcessing
+CheckRoot    # Check if ran as root
+CheckVersion    # Versioning. At the commandline: [<ScriptName> -v] returns <VersionInfo>, then exits.
+#CheckPrerequisites
+CheckPrerequisites_Proposed
+## Report
+UserInput
+Writer less | less -R    # writing to less
+## Post processing
+RmOldReport
+Writer | sed 's/<filter>/[REMOVED]/g' > $report     # Writing to file
+## Epitaph
+echo "The result is stored in '$report'"
+## Optional upload to pastebin paste.ubuntu.com # Proposed
+Paster $report
+
+
+
+
+########################################################################
+## TODO LIST ##
+########################################################################
+# Check prereqs (rewritten). Status: Testing
+# Ask if anything else might be useful info if Server Edition(?)
+########################################################################
+## CHANGE LOG ##
+########################################################################
+# Added GetUsb()
+# Added branch in GetVideoEnv() for frambuffer only
+# Finished prototype for CheckPrerequisites_Proposed()
+# Added GetDmi() to replace last part of inxi
+# Modded script to test without inxi and old CheckPrerequisites()
+# Cleaned up code
+# Added $version to Report
+# Change scriptname (support-info) and report name (support-info.txt)
+# Fixed Paster()
+#
+
+
