@@ -152,11 +152,23 @@ if command -v last >/dev/null 2>&1; then
         LASTBOOTDT=$(date -d "$LASTBOOTDT" +"%d %b %Y %H:%M %Z %z" 2>/dev/null)
     fi
 fi
-LASTBOOTDT="${LASTBOOTDT:-Unknown}"
+LASTBOOTDT=""
+if command -v last >/dev/null 2>&1; then
+    LASTBOOTDT=$(last -FRn 1 reboot 2>/dev/null | sed -n 's/.*system boot[ ]\+\(.\+\) - .*/\1/p')
+    if [ -n "$LASTBOOTDT" ]; then
+        LASTBOOTDT=$(date -d "$LASTBOOTDT" +"%d %b %Y %H:%M %Z %z" 2>/dev/null)
+    fi
+fi
 
-printf "Report from: %s\n\n" "$REPORTDATE"
-printf "Booted last: %s\n\n" "$LASTBOOTDT"
-printf "Script from: %s\n" "$SCRIPTDATE"
+# Fallback to uptime -s if last is unavailable or empty (common on modern systemd)
+if [ -z "$LASTBOOTDT" ] && command -v uptime >/dev/null 2>&1; then
+    UPTIME_SINCE=$(uptime -s 2>/dev/null)
+    if [ -n "$UPTIME_SINCE" ]; then
+        LASTBOOTDT=$(date -d "$UPTIME_SINCE" +"%d %b %Y %H:%M %Z %z" 2>/dev/null)
+    fi
+fi
+
+LASTBOOTDT="${LASTBOOTDT:-Unknown}"
 
 printf "\n##### release ###########################\n\n"
 lsb_release -idrc
