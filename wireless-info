@@ -64,17 +64,11 @@ else
     exit 1
 fi
 
+# Streamlined modern privilege escalation (removed dead gksudo/kdesudo)
 if [ -t 0 ]; then
     SUDO="sudo"
 elif [ -x /usr/bin/pkexec ]; then
     SUDO="pkexec"
-elif [ -x /usr/bin/gksudo ]; then
-    SUDO="gksudo"
-    GKSUDO="yes"
-elif [ -x /usr/bin/kdesudo ]; then
-    SUDO="kdesudo"
-    KDESUDO="yes"
-    KDESUDOCMT=" needs administrative privileges. Please enter your password."
 fi
 
 dialog_info () {
