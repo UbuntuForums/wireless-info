@@ -285,7 +285,16 @@ fi
 
 printf "\n##### iw link ##########################\n\n"
 if command -v iw >/dev/null 2>&1; then
-    iw link
+    wireless_interfaces=$(iw dev | awk '$1=="Interface"{print $2}')
+    if [ -z "$wireless_interfaces" ]; then
+        echo "No wireless interfaces found."
+    else
+        for iface in $wireless_interfaces; do
+            printf "--- Interface: %s ---\n" "$iface"
+            iw dev "$iface" link
+            echo
+        done
+    fi
 else
     echo "'iw' command is not available."
 fi
