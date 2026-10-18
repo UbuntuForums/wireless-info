@@ -250,7 +250,9 @@ if [ -d "/var/lib/snapd/hostfs/etc/network" ]; then
     NET_BASE="/var/lib/snapd/hostfs/etc/network"
 fi
 
-for IFACESFILE in $(find "$NET_BASE" -type f 2>/dev/null | sort); do
+# Explicitly target ONLY the main interfaces file and files inside interfaces.d/
+for IFACESFILE in "$NET_BASE/interfaces" "$NET_BASE"/interfaces.d/*; do
+    [ -f "$IFACESFILE" ] || continue
     IFACESFLCNT=$(sed '/^#/d;s/^wpa-psk [[:graph:]]\+/wpa-psk <WPA key removed>/' "$IFACESFILE" 2>/dev/null)
     if [ -n "$IFACESFLCNT" ]; then
         DISPLAY_PATH="${IFACESFILE#/var/lib/snapd/hostfs}"
