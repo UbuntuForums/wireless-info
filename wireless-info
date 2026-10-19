@@ -180,7 +180,7 @@ if [ -n "$SUDO_USER" ]; then
 fi
 
 if [ -f "$REAL_HOME/.dmrc" ]; then
-    printf "--- .dmrc ---\n"
+    printf -- "--- .dmrc ---\n"
     cat "$REAL_HOME/.dmrc"
     echo
 else
@@ -188,7 +188,7 @@ else
 fi
 
 if [ -f "$REAL_HOME/.xprofile" ]; then
-    printf "--- .xprofile ---\n"
+    printf -- "--- .xprofile ---\n"
     cat "$REAL_HOME/.xprofile"
     echo
 fi
@@ -256,7 +256,6 @@ if [ -d "/var/lib/snapd/hostfs/etc/network" ]; then
     NET_BASE="/var/lib/snapd/hostfs/etc/network"
 fi
 
-# Explicitly target ONLY the main interfaces file and files inside interfaces.d/
 for IFACESFILE in "$NET_BASE/interfaces" "$NET_BASE"/interfaces.d/*; do
     [ -f "$IFACESFILE" ] || continue
     IFACESFLCNT=$(sed '/^#/d;s/^wpa-psk [[:graph:]]\+/wpa-psk <WPA key removed>/' "$IFACESFILE" 2>/dev/null)
@@ -298,7 +297,7 @@ if command -v iw >/dev/null 2>&1; then
         echo "No wireless interfaces found."
     else
         for iface in $wireless_interfaces; do
-            printf "--- Interface: %s ---\n" "$iface"
+            printf -- "--- Interface: %s ---\n" "$iface"
             iw dev "$iface" link
             echo
         done
@@ -488,13 +487,6 @@ else
     echo "'iw' command is not available (package \"iw\")."
 fi
 
-printf "\n##### iwlist channels ###################\n\n"
-if [ -x /sbin/iwlist ]; then
-    iwlist chan
-else
-    echo "'iwlist' is not installed (package \"wireless-tools\")."
-fi
-
 printf "\n##### iw scan ###########################\n\n"
 if command -v iw >/dev/null 2>&1; then
     wireless_interfaces=$(iw dev | awk '$1=="Interface"{print $2}')
@@ -503,7 +495,7 @@ if command -v iw >/dev/null 2>&1; then
         echo "No wireless interfaces found."
     else
         for iface in $wireless_interfaces; do
-            printf "--- Interface: %s ---\n\n" "$iface"
+            printf -- "--- Interface: %s ---\n\n" "$iface"
             if [ -n "$SUDO" ]; then
                 trap "" 2 3
                 IWSCAN=$($SUDO${KDESUDO+ -d} iw dev "$iface" scan 2>/dev/null) && SUDOSUCCESS="yes" || SUDOSUCCESS="no"
@@ -514,7 +506,7 @@ if command -v iw >/dev/null 2>&1; then
                         grep '^[ ]*freq:' <<< "$IWSCAN" | sort | uniq -c | sed 's/^[ ]\+\([ ][0-9]\+\)[ ]\+/     \1    APs on freq /'
                         echo
                     fi
-                    grep -E 'BSS |freq:|signal:|SSID:' <<< "$IWSCAN"
+                    grep -E 'BSS |freq:|signal:|SSID:' <<< "$IWSCAN" | sed 's/^[[:space:]]*//'
                 else
                     printf "\nAcquisition of admin privileges failed for %s.\n" "$iface"
                 fi
@@ -576,13 +568,6 @@ else
     echo "No wireless modules available to inspect for parameters."
 fi
 
-printf "\n##### /etc/modules ######################\n\n"
-if [ -f "/etc/modules" ]; then
-    grep -v '^#' /etc/modules 2>/dev/null
-else
-    echo "/etc/modules not found."
-fi
-
 printf "\n##### modprobe options ##################\n\n"
 for MODPROBEFILE in $(find /etc/modprobe.{conf,d} -name "*.conf" -regextype posix-egrep -not -regex ".*$MODPROBEXCL.*" 2> /dev/null | sort); do
     MODPROBEOPTS=$(grep -v -E '^(#|$)' "$MODPROBEFILE" 2>/dev/null)
@@ -590,23 +575,6 @@ for MODPROBEFILE in $(find /etc/modprobe.{conf,d} -name "*.conf" -regextype posi
         printf "[%s]\n%s\n\n" "$MODPROBEFILE" "$MODPROBEOPTS"
     fi
 done
-
-printf "\n##### rc.local ##########################\n\n"
-RC_LOCAL_PATH="/etc/rc.local"
-if [ -f "/var/lib/snapd/hostfs/etc/rc.local" ]; then
-    RC_LOCAL_PATH="/var/lib/snapd/hostfs/etc/rc.local"
-fi
-
-if [ -f "$RC_LOCAL_PATH" ]; then
-    RCLOCAL_CONTENT=$(grep -v '^[[:space:]]*#' "$RC_LOCAL_PATH" 2>/dev/null | grep -v '^[[:space:]]*$')
-    if [ -n "$RCLOCAL_CONTENT" ]; then
-        printf "[%s]\n%s\n\n" "$RC_LOCAL_PATH" "$RCLOCAL_CONTENT"
-    else
-        echo "rc.local exists but contains only comments or is empty."
-    fi
-else
-    echo "rc.local does not exist (standard on modern systemd systems)."
-fi
 
 printf "\n##### systemd-sleep hooks ###############\n\n"
 SYSTEMD_SLEEP_DIRS="/var/lib/snapd/hostfs/etc/systemd/system-sleep /var/lib/snapd/hostfs/lib/systemd/system-sleep"
@@ -618,7 +586,7 @@ for sleep_dir in $SYSTEMD_SLEEP_DIRS; do
             if [ -f "$hook" ]; then
                 found_hooks=1
                 DISPLAY_PATH="${hook#/var/lib/snapd/hostfs}"
-                printf "--- Hook: %s ---\n" "$DISPLAY_PATH"
+                printf -- "--- Hook: %s ---\n" "$DISPLAY_PATH"
                 if [ -r "$hook" ]; then
                     head -n 20 "$hook"
                 else
@@ -671,7 +639,7 @@ printf "\n########## wireless info END ############\n\n"
 exec 2>&4 4>&-
 exec 1>&3 3>&-
 
-##### MAC address masking #####
+##### MAC & IP address masking #####
 
 RESULTS=$(cat -s "$OUTPUTDIR/$FILEBASE.txt")$'\n'
 
@@ -712,7 +680,7 @@ for WLAPNMNR in "${!WLAPSNMMACS[@]}"; do
     MACMASKSED+=" /${WLAPSNMIP6S[$WLAPNMNR]}/ s;${WLAPSNMIP6S[$WLAPNMNR]/#\\(::/\(};<IP6 ${WLAPSNMIDS[$WLAPNMNR]} [AN$(($WLAPNMNR + 1))]>;I;"
 done
 
-sed "$MACMASKSED /\([[:alnum:]]\{2\}:\)\{6,\}/! s/\([[:alnum:]]\{2\}:\)\{5\}[[:alnum:]]\{2\}/<MAC address>/g" <<< "$RESULTS" > "$OUTPUTDIR/$FILEBASE.txt"
+sed "$MACMASKSED /\([[:alnum:]]\{2\}:\)\{6,\}/! s/\([[:alnum:]]\{2\}:\)\{5\}[[:alnum:]]\{2\}/<MAC address>/g; s/\b[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}\b/<IPv4 address>/g" <<< "$RESULTS" > "$OUTPUTDIR/$FILEBASE.txt"
 
 ##### The End #####
 
