@@ -34,7 +34,7 @@ MODMATCHES="(air|ar5|at7|ath[^3]?|b43|bcma|brcm|carl|ipw|iwl|mt[a-z0-9]+|ndis|r(
 LSMODMATCHES="(wmi|(dell|ideapad)[-_]laptop)"
 IFACEMATCHES="(wlan[0-9]|wlp[0-9]+[a-z0-9]*|eth[0-9]|enp[0-9]+[a-z0-9]*)"
 DMESGMATCHES="(firmware|[nN]etwork|sdio|SDIO)"
-NMPROFMATCHES="\(\[connection\]\Vert{}id=\Vert{}type=\Vert{}permissions=\Vert{}autoconnect=\Vert{}\[802-11-wireless\]\Vert{}\[wifi\]\Vert{}ssid=\Vert{}bssid=\Vert{}mac-address\(-blacklist\)\?=\Vert{}mtu=\Vert{}\[802-1x\]\Vert{}[[:graph:]]*ca-certs\?=\Vert{}\[ipv[46]\]\Vert{}method=\)"
+NMPROFMATCHES="\(\[connection\]\|id=\|type=\|permissions=\|autoconnect=\|\[802-11-wireless\]\|\[wifi\]\|ssid=\|bssid=\|mac-address\(-blacklist\)\?=\|mtu=\|\[802-1x\]\|[[:graph:]]*ca-certs\?=\|\[ipv[46]\]\|method=\)"
 
 DMESGEXCL="apparmor|(cfg|mac)80211"
 MODINFOINCL="filename|license|description|depends|retpoline|intree|name|vermagic|parm"
@@ -122,7 +122,7 @@ ip6-mac () {
     OCT1BIM="${OCT1BI:0:6}${OCT1BI7#-}${OCT1BI:7}"
     IP6S+=${IP6S:+$'\n'}"${DEC2HEX[2#$OCT1BIM]}${MAC:3:2}:${MAC:6:2}ff:fe${MAC:9:2}:${MAC:12:2}${MAC:15:2}"
     done
-    sed 's/\(^\Vert{}:\)0\+\([[:alnum:]]\)/\1\2/g;s/^\([0:]\+\)/\\(::\\Vert{}\1\\)/' <<< "$IP6S"
+    sed 's/\(^\|:\)0\+\([[:alnum:]]\)/\1\2/g;s/^\([0:]\+\)/\\(::\\|\1\\)/' <<< "$IP6S"
 }
 
 exec 3>&1 4>&2
@@ -162,14 +162,26 @@ printf "Booted last: %s\n" "$LASTBOOTDT"
 printf "Script from: %s\n\n" "$SCRIPTDATE"
 
 printf "\n##### release ###########################\n\n"
-if command -v lsb_release >/dev/null 2>&1 && lsb_release -idrc 2>/dev/null; then
-    :
-elif [ -f /etc/os-release ]; then
-    . /etc/os-release
-    echo "Distributor ID: ${ID^}"
-    echo "Description:    ${PRETTY_NAME:-$VERSION}"
-    echo "Release:        ${VERSION_ID}"
-    echo "Codename:       ${VERSION_CODENAME:-$UBUNTU_CODENAME}"
+RELEASE_FILE="/etc/os-release"
+if [ -f "/var/lib/snapd/hostfs/etc/os-release" ]; then
+    RELEASE_FILE="/var/lib/snapd/hostfs/etc/os-release"
+fi
+
+if [ -f "$RELEASE_FILE" ]; then
+    OS_NAME=$(awk -F= '$1=="NAME"{print $2}' "$RELEASE_FILE" | tr -d '"')
+    OS_VERSION=$(awk -F= '$1=="VERSION"{print $2}' "$RELEASE_FILE" | tr -d '"')
+    OS_ID=$(awk -F= '$1=="ID"{print $2}' "$RELEASE_FILE" | tr -d '"')
+    OS_VERSION_ID=$(awk -F= '$1=="VERSION_ID"{print $2}' "$RELEASE_FILE" | tr -d '"')
+    OS_VERSION_CODENAME=$(awk -F= '$1=="VERSION_CODENAME"{print $2}' "$RELEASE_FILE" | tr -d '"')
+    OS_UBUNTU_CODENAME=$(awk -F= '$1=="UBUNTU_CODENAME"{print $2}' "$RELEASE_FILE" | tr -d '"')
+    
+    DIST_ID=$(echo "$OS_ID" | awk '{print toupper(substr($0,1,1)) substr($0,2)}')
+    CODENAME="${OS_VERSION_CODENAME:-$OS_UBUNTU_CODENAME}"
+    
+    echo "Distributor ID: ${DIST_ID:-Ubuntu}"
+    echo "Description:    ${OS_VERSION:-$OS_NAME}"
+    echo "Release:        ${OS_VERSION_ID}"
+    echo "Codename:       ${CODENAME}"
 else
     echo "Release information unavailable."
 fi
@@ -413,14 +425,14 @@ if [ -d "$NM_PROFILES_DIR" ]; then
             ORIGIFS="$IFS"
             IFS=$'\n'
             NMWLPROFSOUT=""
-            for NMWLPRFFILE in $(sed -n 's/^\(.\+\):type=\(802-11-wireless\Vert{}wifi\).*$/\1/p' <<< "$NMPROFILES"); do
+            for NMWLPRFFILE in $(sed -n 's/^\(.\+\):type=\(802-11-wireless\|wifi\).*$/\1/p' <<< "$NMPROFILES"); do
                 CLEAN_PATH="${NMWLPRFFILE#/var/lib/snapd/hostfs}"
-                NMWLPRFFLPERMS=$(stat -c "\%a \%U" "$NMWLPRFFILE" 2>/dev/null || echo "unknown")
-                NMWLPROFILE=($(sed -n "s;^$NMWLPRFFILE:\($NMPROFMATCHES.*\)$;\1 \vert{};p" <<< "$NMPROFILES"))
+                NMWLPRFFLPERMS=$(stat -c "%a %U" "$NMWLPRFFILE" 2>/dev/null || echo "unknown")
+                NMWLPROFILE=($(sed -n "s;^$NMWLPRFFILE:\($NMPROFMATCHES.*\)$;\1 |;p" <<< "$NMPROFILES"))
                 NMWLPROFSOUT+="[[$CLEAN_PATH]] ($NMWLPRFFLPERMS)"$'\n'"${NMWLPROFILE[@]}"$'\n\n'
             done
             IFS="$ORIGIFS"
-            sed 's# | \[#\n\[#g;s#\] \vert{}#\]#g;s/ |$//' <<< "$NMWLPROFSOUT" | sed '/^\[[^]]*\]$/d'
+            sed 's# | \[#\n\[#g;s#\] |#\]#g;s/ |$//' <<< "$NMWLPROFSOUT" | sed '/^\[[^]]*\]$/d'
         else
             echo "No active wireless profiles found or privilege escalation failed."
         fi
@@ -437,7 +449,7 @@ if [ -d "/var/lib/snapd/hostfs/etc/netplan" ] || [ -d "/var/lib/snapd/hostfs/lib
     NETPLAN_PREFIX="/var/lib/snapd/hostfs"
 fi
 
-NETPLAN_DIRS="$NETPLAN_PREFIX/lib/netplan $NETPLAN_PREFIX/etc/netplan$NETPLAN_PREFIX/run/netplan"
+NETPLAN_DIRS="$NETPLAN_PREFIX/lib/netplan $NETPLAN_PREFIX/etc/netplan $NETPLAN_PREFIX/run/netplan"
 NETPLAN_FOUND=0
 
 for dir in $NETPLAN_DIRS; do
@@ -540,7 +552,7 @@ if command -v modinfo >/dev/null 2>&1; then
         
         if [ -n "$MODULES" ]; then
             for MODULE in $MODULES; do
-                MODINFO=$(modinfo$MODINFO_ARGS "$MODULE" 2>/dev/null \vert{} grep -i -E "^$MODINFOINCL:")
+                MODINFO=$(modinfo $MODINFO_ARGS "$MODULE" 2>/dev/null | grep -i -E "^$MODINFOINCL:")
                 if [ -n "$MODINFO" ]; then
                     printf "[%s]\n%s\n\n" "$MODULE" "$MODINFO"
                 fi
@@ -592,4 +604,129 @@ for sleep_dir in $SYSTEMD_SLEEP_DIRS; do
         for hook in "$sleep_dir"/*; do
             if [ -f "$hook" ]; then
                 found_hooks=1
-                DISPLAY_PATH="${hook#/
+                DISPLAY_PATH="${hook#/var/lib/snapd/hostfs}"
+                printf -- "--- Hook: %s ---\n" "$DISPLAY_PATH"
+                if [ -r "$hook" ]; then
+                    head -n 20 "$hook"
+                else
+                    echo "[Permission denied or unreadable]"
+                fi
+                echo
+            fi
+        done
+    fi
+done
+
+if [ "$found_hooks" -eq 0 ]; then
+    echo "No custom systemd sleep hooks found."
+fi
+
+printf "\n##### udev rules ########################\n\n"
+UDEV_BASE="/etc/udev/rules.d"
+if [ -d "/var/lib/snapd/hostfs/etc/udev/rules.d" ]; then
+    UDEV_BASE="/var/lib/snapd/hostfs/etc/udev/rules.d"
+fi
+
+for UDEVRLFILE in $(find "$UDEV_BASE" -name "*net*.rules" 2>/dev/null | sort); do
+    UDEVRULES=$(grep -B1 '^[^#]' "$UDEVRLFILE" 2>/dev/null | grep -E -v '^(--)?$')
+    if [ -n "$UDEVRULES" ]; then
+        DISPLAY_PATH="${UDEVRLFILE#/var/lib/snapd/hostfs}"
+        printf "[%s]\n%s\n\n" "$DISPLAY_PATH" "$UDEVRULES"
+    fi
+done
+
+printf "\n##### dmesg wireless diagnostics ########\n\n"
+if command -v dmesg >/dev/null 2>&1; then
+    if [ -n "$SUDO" ]; then
+        trap "" 2 3
+        DMESG_OUT=$($SUDO${KDESUDO+ -d} dmesg -T 2>/dev/null) && SUDOSUCCESS="yes" || SUDOSUCCESS="no"
+        trap 2 3
+        if [ "$SUDOSUCCESS" = "yes" ] && [ -n "$DMESG_OUT" ]; then
+            echo "$DMESG_OUT" | grep -i -E "$DMESGMATCHES" | grep -v -E "$DMESGEXCL"
+        else
+            echo "Failed to retrieve dmesg logs or privilege escalation failed."
+        fi
+    else
+        dmesg -T 2>/dev/null | grep -i -E "$DMESGMATCHES" | grep -v -E "$DMESGEXCL"
+    fi
+else
+    echo "'dmesg' command is not available."
+fi
+
+printf "\n########## wireless info END ############\n\n"
+
+exec 2>&4 4>&-
+exec 1>&3 3>&-
+
+##### MAC & IP address masking #####
+
+RESULTS=$(cat -s "$OUTPUTDIR/$FILEBASE.txt")$'\n'
+
+ORIGIFS="$IFS"
+IFS=$'\n'
+
+IFACESIDS=($(sed -n "/\([[:alnum:]]\{2\}:\)\{5\}[[:alnum:]]\{2\}/ {/\(00:\)\{5\}00/! {s/^[0-9]\+: \([^ :]\+\):.*/'\1'/p; s/^\([^ :]\+\):\? .*/'\1'/p}}" <<< "$IFCONFIG"))
+IFACESMACS=($(sed -n '/\(00:\)\{5\}00/! s#.*\(HWaddr\|link/[^ ]\+\|ether\) \(\([[:alnum:]]\{2\}:\)\{5\}[[:alnum:]]\{2\}\).*#\2#p' <<< "$IFCONFIG"))
+IFACESIP6S=($(ip6-mac "${IFACESMACS[@]}"))
+
+WLAPSIWLIDS=($(sed -n "/^[ ]*Cell [0-9]\+/,/^[ ]*ESSID:/ {/^[ ]*Cell [0-9]\+/h; /^[ ]*ESSID:/ {H;g;s/^[ ]*Cell 0\?\([0-9]\+\).*ESSID:\"\(.*\)\"$/'\2' [AC\1]/p}}" <<< "$IWLISTSCAN"))
+WLAPSIWLMACS=($(sed -n 's/^[ ]*Cell [0-9]\+.*Address: \([^ ]\+\)/\1/p' <<< "$IWLISTSCAN"))
+WLAPSIWLIP6S=($(ip6-mac "${WLAPSIWLMACS[@]}"))
+
+WLAPSNMRAW=$(sed -n '/^##### NetworkManager info #####/,/^##### / {/^[ ]*Wireless Access Points/,/^$/ {/Wireless Access Points/d;s/^[ ]\+\*\?//;s/:[ ]\+/\t/;p}; /^SSID[ ]\+BSSID[ ]\+/,/^$/ {/^SSID[ ]\{2,\}BSSID[ ]\{2,\}/d;s/[ ]\{2,\}/\t/;p}}' <<< "$RESULTS")
+WLAPSNMIDS=($(awk -F '\t' '{print "'\''" $1 "'\''"}' <<< "$WLAPSNMRAW"))
+WLAPSNMMACS=($(grep -o '\([[:alnum:]]\{2\}:\)\{5\}[[:alnum:]]\{2\}' <<< "$WLAPSNMRAW"))
+WLAPSNMIP6S=($(ip6-mac "${WLAPSNMMACS[@]}"))
+
+IFS="$ORIGIFS"
+
+for IFACENR in "${!IFACESMACS[@]}"; do
+    MACMASKSED+="s;${IFACESMACS[$IFACENR]};<MAC ${IFACESIDS[$IFACENR]} [IF$(($IFACENR + 1))]>;I;"
+    MACMASKSED+=" /${IFACESIP6S[$IFACENR]}/ s;${IFACESIP6S[$IFACENR]/#\\(::/\(};<IP6 ${IFACESIDS[$IFACENR]} [IF$(($IFACENR + 1))]>;I;"
+    IFACEMACC=${IFACESMACS[$IFACENR]//:/}
+    if [[ ${IFACESIDS[$IFACENR],,} =~ ${IFACEMACC,,} ]]; then
+    MACMASKSED+="s;\(${IFACESIDS[$IFACENR]:1:3}\)$IFACEMACC;\1<IF from MAC [IF$(($IFACENR + 1))]>;Ig;"
+    fi
+done
+
+for WLAPIWLNR in "${!WLAPSIWLMACS[@]}"; do
+    MACMASKSED+="s;${WLAPSIWLMACS[$WLAPIWLNR]};<MAC ${WLAPSIWLIDS[$WLAPIWLNR]}>;I;"
+    MACMASKSED+=" /${WLAPSIWLIP6S[$WLAPIWLNR]}/ s;${WLAPSIWLIP6S[$WLAPIWLNR]/#\\(::/\(};<IP6 ${WLAPSIWLIDS[$WLAPIWLNR]}>;I;"
+done
+
+for WLAPNMNR in "${!WLAPSNMMACS[@]}"; do
+    MACMASKSED+="s;${WLAPSNMMACS[$WLAPNMNR]};<MAC ${WLAPSNMIDS[$WLAPNMNR]} [AN$(($WLAPNMNR + 1))]>;I;"
+    MACMASKSED+=" /${WLAPSNMIP6S[$WLAPNMNR]}/ s;${WLAPSNMIP6S[$WLAPNMNR]/#\\(::/\(};<IP6 ${WLAPSNMIDS[$WLAPNMNR]} [AN$(($WLAPNMNR + 1))]>;I;"
+done
+
+sed "$MACMASKSED /\([[:alnum:]]\{2\}:\)\{6,\}/! s/\([[:alnum:]]\{2\}:\)\{5\}[[:alnum:]]\{2\}/<MAC address>/g; s/\b[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}\b/<IPv4 address>/g" <<< "$RESULTS" > "$OUTPUTDIR/$FILEBASE.txt"
+
+##### The End #####
+
+dialog_info "${TERMOUT+\n}Results saved in \"$OUTPUTDIR/$FILEBASE.txt\".${TERMOUT+\n}"
+
+if (( $(stat -c %s "$OUTPUTDIR/$FILEBASE.txt") > 19968 )); then
+    tar -czf "$OUTPUTDIR/$FILEBASE.tar.gz" -C "$OUTPUTDIR" "$FILEBASE.txt" && \
+    dialog_info "Results also archived in \"$OUTPUTDIR/$FILEBASE.tar.gz\",${DIALOGBREAK}as they exceed the 19.5 kB size limit for \".txt\" attachments${DIALOGBREAK}on the Ubuntu Forums.${TERMOUT+\n}" || \
+    dialog_error "Results exceed the 19.5 kB size limit for \".txt\" attachments${DIALOGBREAK}on the Ubuntu Forums, but archive could not be created.${TERMOUT+\n}"
+fi
+
+if [ -x /usr/bin/pastebinit ]; then
+    PASTEBIN=$(dialog_question "Do you also want to post them${DIALOGBREAK}to an online pastebin (dpaste.org)?")
+    if [[ ! $PASTEBIN =~ ^no?$ ]]; then
+        PASTESUCCESS="no"
+        PASTERESULT=$(pastebinit -b https://dpaste.org/ -i "$OUTPUTDIR/$FILEBASE.txt" -f text 2>&1) && PASTESUCCESS="yes"
+        
+        if [ "$PASTESUCCESS" = "yes" ]; then
+            dialog_info "${TERMOUT+\n}Pastebin successful:\n\n${PASTERESULT}${TERMOUT+\n}"
+        else
+            if [ -n "$PASTERESULT" ]; then
+                dialog_error "${TERMOUT+\n}Pastebin failed, error message is:\n\n${PASTERESULT}${TERMOUT+\n}"
+            else
+                dialog_error "${TERMOUT+\n}Pastebin failed, no error message given.${TERMOUT+\n}"
+            fi
+        fi
+    else
+        echo
+    fi
+fi
