@@ -30,7 +30,7 @@ FILEBASE="wireless-info"
 OUTPUTDIR="$PWD"
 OUTPUTDIRFB="/tmp"
 
-MODMATCHES="(air|ar5|at7|ath[^3]?|b43|bcma|brcm|carl|ipw|iwl|mt[0-9]|ndis|r(818|8192[eu]|871|92su)|8(188|189|192|723|812)[acde][esu]|rt[23567]|rtl|ssb|wl|rtw8|(cfg|mac)80211)"
+MODMATCHES="(air|ar5|at7|ath[^3]?|b43|bcma|brcm|carl|ipw|iwl|mt[a-z0-9]+|ndis|r(818|8192[eu]|871|92su)|8(188|189|192|723|812)[acde][esu]|rt[23567]|rtl|ssb|wl|rtw8|(cfg|mac)80211)"
 LSMODMATCHES="(wmi|(dell|ideapad)[-_]laptop)"
 IFACEMATCHES="(wlan[0-9]|wlp[0-9]+[a-z0-9]*|eth[0-9]|enp[0-9]+[a-z0-9]*)"
 DMESGMATCHES="(firmware|[nN]etwork|sdio|SDIO)"
@@ -64,7 +64,7 @@ else
     exit 1
 fi
 
-# Streamlined modern privilege escalation (removed dead gksudo/kdesudo)
+# Streamlined modern privilege escalation
 if [ -t 0 ]; then
     SUDO="sudo"
 elif [ -x /usr/bin/pkexec ]; then
@@ -146,13 +146,6 @@ if command -v last >/dev/null 2>&1; then
         LASTBOOTDT=$(date -d "$LASTBOOTDT" +"%d %b %Y %H:%M %Z %z" 2>/dev/null)
     fi
 fi
-LASTBOOTDT=""
-if command -v last >/dev/null 2>&1; then
-    LASTBOOTDT=$(last -FRn 1 reboot 2>/dev/null | sed -n 's/.*system boot[ ]\+\(.\+\) - .*/\1/p')
-    if [ -n "$LASTBOOTDT" ]; then
-        LASTBOOTDT=$(date -d "$LASTBOOTDT" +"%d %b %Y %H:%M %Z %z" 2>/dev/null)
-    fi
-fi
 
 # Fallback to uptime -s if last is unavailable or empty (common on modern systemd)
 if [ -z "$LASTBOOTDT" ] && command -v uptime >/dev/null 2>&1; then
@@ -164,8 +157,18 @@ fi
 
 LASTBOOTDT="${LASTBOOTDT:-Unknown}"
 
+printf "Report from: %s\n" "$REPORTDATE"
+printf "Booted last: %s\n" "$LASTBOOTDT"
+printf "Script from: %s\n\n" "$SCRIPTDATE"
+
 printf "\n##### release ###########################\n\n"
-lsb_release -idrc
+if command -v lsb_release >/dev/null 2>&1 && lsb_release -idrc 2>/dev/null; then
+    :
+elif [ -f /etc/os-release ]; then
+    grep -E '^(NAME|VERSION|ID|VERSION_ID|VERSION_CODENAME)=' /etc/os-release
+else
+    echo "Release information unavailable."
+fi
 
 printf "\n##### kernel ############################\n\n"
 uname -srvmpio
@@ -199,7 +202,7 @@ echo "DESKTOP_SESSION: ${DESKTOP_SESSION:-Not set}"
 printf "\n##### lspci hardware info ###############\n\n"
 
 if command -v lspci >/dev/null 2>&1; then
-    lspci -nnk 2> >(grep -v "pcilib:" >&2)
+    lspci -nnk -d ::02 2> >(grep -v "pcilib:" >&2)
 else
     echo "'lspci' command is not available."
 fi
