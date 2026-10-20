@@ -218,7 +218,17 @@ echo "DESKTOP_SESSION: ${DESKTOP_SESSION:-Not set}"
 printf "\n##### lspci hardware info ###############\n\n"
 
 if command -v lspci >/dev/null 2>&1; then
-    lspci -nnk -d ::02 2> >(grep -v "pcilib:" >&2)
+    lspci -nnk 2> >(grep -v "pcilib:" >&2) | awk '
+        BEGIN { printer=0 }
+        /^[0-9a-f]{2}:[0-9a-f]{2}\.[0-9]/ {
+            if ($0 ~ /Network controller|Ethernet controller/) {
+                printer=1
+            } else {
+                printer=0
+            }
+        }
+        printer { print }
+    '
 else
     echo "'lspci' command is not available."
 fi
