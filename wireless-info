@@ -168,16 +168,16 @@ if [ -f "/var/lib/snapd/hostfs/etc/os-release" ]; then
 fi
 
 if [ -f "$RELEASE_FILE" ]; then
-    OS_NAME=$(grep '^NAME=' "$RELEASE_FILE" | cut -d= -f2- | tr -d '"')
-    OS_VERSION=$(grep '^VERSION=' "$RELEASE_FILE" | cut -d= -f2- | tr -d '"')
-    OS_ID=$(grep '^ID=' "$RELEASE_FILE" | cut -d= -f2- | tr -d '"')
-    OS_VER_ID=$(grep '^VERSION_ID=' "$RELEASE_FILE" | cut -d= -f2- | tr -d '"')
-    OS_CODENAME=$(grep '^VERSION_CODENAME=' "$RELEASE_FILE" | cut -d= -f2- | tr -d '"')
+    NAME=""; VERSION=""; ID=""; VERSION_ID=""; VERSION_CODENAME=""; UBUNTU_CODENAME=""; PRETTY_NAME=""
+    . "$RELEASE_FILE"
     
-    printf "Distributor ID:\t%s\n" "${OS_ID^}"
-    printf "Description:\t%s\n" "${OS_VERSION:-$OS_NAME}"
-    printf "Release:\t%s\n" "${OS_VER_ID}"
-    printf "Codename:\t%s\n" "${OS_CODENAME}"
+    CODENAME="${VERSION_CODENAME:-$UBUNTU_CODENAME}"
+    DIST_ID="${ID^}"
+    
+    printf "Distributor ID:\t%s\n" "${DIST_ID:-Ubuntu}"
+    printf "Description:\t%s\n" "${PRETTY_NAME:-$VERSION}"
+    printf "Release:\t%s\n" "${VERSION_ID}"
+    printf "Codename:\t%s\n" "${CODENAME}"
 elif command -v lsb_release >/dev/null 2>&1; then
     lsb_release -idrc 2>/dev/null
 else
