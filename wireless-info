@@ -25,7 +25,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 
-SCRIPTDATE="2026-10-19 3:55 -0700"
+SCRIPTDATE="2026-10-17 3:55 -0700"
 FILEBASE="wireless-info"
 OUTPUTDIR="$PWD"
 OUTPUTDIRFB="/tmp"
@@ -162,10 +162,14 @@ printf "Booted last: %s\n" "$LASTBOOTDT"
 printf "Script from: %s\n\n" "$SCRIPTDATE"
 
 printf "\n##### release ###########################\n\n"
-if command -v lsb_release >/dev/null 2>&1 && lsb_release -idrc 2>/dev/null; then
-    :
-elif [ -f /etc/os-release ]; then
-    grep -E '^(NAME|VERSION|ID|VERSION_ID|VERSION_CODENAME)=' /etc/os-release
+if [ -f /etc/os-release ]; then
+    . /etc/os-release
+    printf "Distributor ID:\t%s\n" "${ID^}"
+    printf "Description:\t%s\n" "${PRETTY_NAME}"
+    printf "Release:\t%s\n" "${VERSION_ID}"
+    printf "Codename:\t%s\n" "${VERSION_CODENAME}"
+elif command -v lsb_release >/dev/null 2>&1; then
+    lsb_release -idrc 2>/dev/null
 else
     echo "Release information unavailable."
 fi
