@@ -162,12 +162,22 @@ printf "Booted last: %s\n" "$LASTBOOTDT"
 printf "Script from: %s\n\n" "$SCRIPTDATE"
 
 printf "\n##### release ###########################\n\n"
-if [ -f /etc/os-release ]; then
-    . /etc/os-release
-    printf "Distributor ID:\t%s\n" "${ID^}"
-    printf "Description:\t%s\n" "${PRETTY_NAME}"
-    printf "Release:\t%s\n" "${VERSION_ID}"
-    printf "Codename:\t%s\n" "${VERSION_CODENAME}"
+RELEASE_FILE="/etc/os-release"
+if [ -f "/var/lib/snapd/hostfs/etc/os-release" ]; then
+    RELEASE_FILE="/var/lib/snapd/hostfs/etc/os-release"
+fi
+
+if [ -f "$RELEASE_FILE" ]; then
+    OS_NAME=$(grep '^NAME=' "$RELEASE_FILE" | cut -d= -f2- | tr -d '"')
+    OS_VERSION=$(grep '^VERSION=' "$RELEASE_FILE" | cut -d= -f2- | tr -d '"')
+    OS_ID=$(grep '^ID=' "$RELEASE_FILE" | cut -d= -f2- | tr -d '"')
+    OS_VER_ID=$(grep '^VERSION_ID=' "$RELEASE_FILE" | cut -d= -f2- | tr -d '"')
+    OS_CODENAME=$(grep '^VERSION_CODENAME=' "$RELEASE_FILE" | cut -d= -f2- | tr -d '"')
+    
+    printf "Distributor ID:\t%s\n" "${OS_ID^}"
+    printf "Description:\t%s\n" "${OS_VERSION:-$OS_NAME}"
+    printf "Release:\t%s\n" "${OS_VER_ID}"
+    printf "Codename:\t%s\n" "${OS_CODENAME}"
 elif command -v lsb_release >/dev/null 2>&1; then
     lsb_release -idrc 2>/dev/null
 else
