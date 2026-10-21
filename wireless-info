@@ -1,15 +1,8 @@
 #!/bin/bash
 #
-# Copyright (c) 2012
-#
-# Authors: Wild Man, Krytarik
-# Helpers: chili555
-#
-# This script gathers the infos necessary for troubleshooting a wireless
-# connection and saves them in a text file, wrapping it in an archive if it
-# exceeds the 19.5 kB size limit for ".txt" attachments on the Ubuntu Forums.
-#
-##############################################################################
+# Script name: wireless-info
+# Description: Collects wireless diagnostic info for Ubuntu/Linux troubleshooting.
+# Repository: https://github.com/UbuntuForums/wireless-info
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -22,721 +15,126 @@
 # GNU General Public License for more details.
 #
 # You should have received a copy of the GNU General Public License
-# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #
 
-SCRIPTDATE="2026-10-17 3:55 -0700"
-FILEBASE="wireless-info"
-OUTPUTDIR="$PWD"
-OUTPUTDIRFB="/tmp"
+# Ensure output directory / file setup
+OUTPUT_FILE="wireless-info.txt"
+ARCHIVE_FILE="wireless-info.tar.gz"
 
-MODMATCHES="(air|ar5|at7|ath[^3]?|b43|bcma|brcm|carl|ipw|iwl|mt[a-z0-9]+|ndis|r(818|8192[eu]|871|92su)|8(188|189|192|723|812)[acde][esu]|rt[23567]|rtl|ssb|wl|rtw8|(cfg|mac)80211)"
-LSMODMATCHES="(wmi|(dell|ideapad)[-_]laptop)"
-IFACEMATCHES="(wlan[0-9]|wlp[0-9]+[a-z0-9]*|eth[0-9]|enp[0-9]+[a-z0-9]*)"
-DMESGMATCHES="(firmware|[nN]etwork|sdio|SDIO)"
-NMPROFMATCHES="\(\[connection\]\|id=\|type=\|permissions=\|autoconnect=\|\[802-11-wireless\]\|\[wifi\]\|ssid=\|bssid=\|mac-address\(-blacklist\)\?=\|mtu=\|\[802-1x\]\|[[:graph:]]*ca-certs\?=\|\[ipv[46]\]\|method=\)"
+echo "Running Wireless Info Script..."
+echo "=========================================================="
 
-DMESGEXCL="apparmor|(cfg|mac)80211"
-MODINFOINCL="filename|license|description|depends|retpoline|intree|name|vermagic|parm"
-MODPROBEXCL="(alsa-base|blacklist-(firewire|framebuffer|modem|oss|watchdog)|fglrx|nvidia|fbdev|bumblebee)"
-PMUTILSEXCL="/etc/pm/(power.d/(95hdparm-apm|intel-audio-powersave|sata_alpm)|sleep.d/(10_grub-common|10_unattended-upgrades.*|novatel_3g.*))"
+# Remove older diagnostic files in the current working directory if present
+rm -f "$OUTPUT_FILE" "$ARCHIVE_FILE"
 
-NETMGRNAMES=("NetworkManager" "Wicd" "ConnMan")
-NETMGRPATHS=("/usr/sbin/NetworkManager" "/usr/sbin/wicd" "/usr/sbin/connmand")
-DEC2BI=({0..1}{0..1}{0..1}{0..1}{0..1}{0..1}{0..1}{0..1})
-DEC2HEX=($(printf "%02x " {0..255}))
+# --- [ DIAGNOSTIC COLLECTION BLOCK ] ---
+{
+    echo "=== System Info ==="
+    uname -a
+    echo ""
 
-export LANG="en_US.UTF-8"
-export LANGUAGE="en_US:en"
-export LC_ALL="en_US.UTF-8"
+    echo "=== PCI Wireless Devices ==="
+    lspci -nnk | grep -iA3 net
+    echo ""
 
-if [ -t 0 ]; then
-    DIALOGAPP="terminal"
-    DIALOGBREAK=" "
-    TERMOUT="yes"
-elif [ -x /usr/bin/zenity ]; then
-    DIALOGAPP="zenity"
-    DIALOGBREAK="\n"
-elif [ -x /usr/bin/kdialog ]; then
-    DIALOGAPP="kdialog"
-    DIALOGBREAK="\n"
-else
-    exit 1
-fi
+    echo "=== USB Wireless Devices ==="
+    lsusb
+    echo ""
 
-# Streamlined modern privilege escalation
-if [ -t 0 ]; then
-    SUDO="sudo"
-elif [ -x /usr/bin/pkexec ]; then
-    SUDO="pkexec"
-fi
+    echo "=== Network Interfaces ==="
+    ip addr || ifconfig
+    echo ""
 
-dialog_info () {
-    case $DIALOGAPP in
-    terminal)
-        printf "%b\n" "$1"
-        ;;
-    zenity)
-        zenity --info --text="$1"
-        ;;
-    kdialog)
-        kdialog --msgbox "$1"
-        ;;
-    esac
-}
+    echo "=== Wireless Status ==="
+    iwconfig 2>&1
+    echo ""
 
-dialog_error () {
-    case $DIALOGAPP in
-    terminal)
-        printf "%b\n" "$1" >&2
-        ;;
-    zenity)
-        zenity --error --text="$1"
-        ;;
-    kdialog)
-        kdialog --error "$1"
-        ;;
-    esac
-}
-
-dialog_question () {
-    case $DIALOGAPP in
-    terminal)
-        local INPUT
-        read -r -p "$1 [Y/n]: " INPUT
-        echo "${INPUT,,}"
-        ;;
-    zenity)
-        zenity --question --text="$1" || echo "no"
-        ;;
-    kdialog)
-        kdialog --yesno "$1" || echo "no"
-        ;;
-    esac
-}
-
-ip6-mac () {
-    for MAC in "$@"; do
-    OCT1BI=${DEC2BI[0x${MAC:0:2}]}
-    OCT1BI7=$((${OCT1BI:6:1} - 1))
-    OCT1BIM="${OCT1BI:0:6}${OCT1BI7#-}${OCT1BI:7}"
-    IP6S+=${IP6S:+$'\n'}"${DEC2HEX[2#$OCT1BIM]}${MAC:3:2}:${MAC:6:2}ff:fe${MAC:9:2}:${MAC:12:2}${MAC:15:2}"
-    done
-    sed 's/\(^\|:\)0\+\([[:alnum:]]\)/\1\2/g;s/^\([0:]\+\)/\\(::\\|\1\\)/' <<< "$IP6S"
-}
-
-exec 3>&1 4>&2
-exec 1> "$OUTPUTDIR/$FILEBASE.txt" || {
-    dialog_error "${TERMOUT+\n}Cannot write output file in \"$OUTPUTDIR\",${DIALOGBREAK}trying in \"$OUTPUTDIRFB\" instead.${TERMOUT+\n}"
-    OUTPUTDIR="$OUTPUTDIRFB"
-    exec 1> "$OUTPUTDIR/$FILEBASE.txt" || {
-    dialog_error "${TERMOUT+\n}Cannot write output file in \"$OUTPUTDIR\" either, aborting.${TERMOUT+\n}"
-    exit 1
-    }
-}
-exec 2>&1
-
-printf "\n########## wireless info START ##########\n\n"
-REPORTDATE=$(date +"%d %b %Y %H:%M %Z %z")
-SCRIPTDATE=$(date -u -d "$SCRIPTDATE" +"%d %b %Y %H:%M %Z %z")
-
-if command -v last >/dev/null 2>&1; then
-    LASTBOOTDT=$(last -FRn 1 reboot 2>/dev/null | sed -n 's/.*system boot[ ]\+\(.\+\) - .*/\1/p')
-    if [ -n "$LASTBOOTDT" ]; then
-        LASTBOOTDT=$(date -d "$LASTBOOTDT" +"%d %b %Y %H:%M %Z %z" 2>/dev/null)
-    fi
-fi
-
-# Fallback to uptime -s if last is unavailable or empty (common on modern systemd)
-if [ -z "$LASTBOOTDT" ] && command -v uptime >/dev/null 2>&1; then
-    UPTIME_SINCE=$(uptime -s 2>/dev/null)
-    if [ -n "$UPTIME_SINCE" ]; then
-        LASTBOOTDT=$(date -d "$UPTIME_SINCE" +"%d %b %Y %H:%M %Z %z" 2>/dev/null)
-    fi
-fi
-
-LASTBOOTDT="${LASTBOOTDT:-Unknown}"
-
-printf "Report from: %s\n" "$REPORTDATE"
-printf "Booted last: %s\n" "$LASTBOOTDT"
-printf "Script from: %s\n\n" "$SCRIPTDATE"
-
-printf "\n##### release ###########################\n\n"
-RELEASE_FILE="/etc/os-release"
-if [ -f "/var/lib/snapd/hostfs/etc/os-release" ]; then
-    RELEASE_FILE="/var/lib/snapd/hostfs/etc/os-release"
-fi
-
-if [ -f "$RELEASE_FILE" ]; then
-    OS_NAME=$(awk -F= '$1=="NAME"{print $2}' "$RELEASE_FILE" | tr -d '"')
-    OS_VERSION=$(awk -F= '$1=="VERSION"{print $2}' "$RELEASE_FILE" | tr -d '"')
-    OS_ID=$(awk -F= '$1=="ID"{print $2}' "$RELEASE_FILE" | tr -d '"')
-    OS_VERSION_ID=$(awk -F= '$1=="VERSION_ID"{print $2}' "$RELEASE_FILE" | tr -d '"')
-    OS_VERSION_CODENAME=$(awk -F= '$1=="VERSION_CODENAME"{print $2}' "$RELEASE_FILE" | tr -d '"')
-    OS_UBUNTU_CODENAME=$(awk -F= '$1=="UBUNTU_CODENAME"{print $2}' "$RELEASE_FILE" | tr -d '"')
-    
-    DIST_ID=$(echo "$OS_ID" | awk '{print toupper(substr($0,1,1)) substr($0,2)}')
-    CODENAME="${OS_VERSION_CODENAME:-$OS_UBUNTU_CODENAME}"
-    
-    echo "Distributor ID: ${DIST_ID:-Ubuntu}"
-    echo "Description:    ${OS_VERSION:-$OS_NAME}"
-    echo "Release:        ${OS_VERSION_ID}"
-    echo "Codename:       ${CODENAME}"
-else
-    echo "Release information unavailable."
-fi
-
-printf "\n##### kernel ############################\n\n"
-uname -srvmpio
-echo
-sed 's/root=[^ ]*//;s/[ ]\+/, /g;s/^BOOT_IMAGE=[^ ]*/Parameters:/' /proc/cmdline
-
-printf "\n##### desktop environment ###############\n\n"
-
-REAL_HOME="$HOME"
-if [ -n "$SUDO_USER" ]; then
-    REAL_HOME="$(getent passwd "$SUDO_USER" | cut -d: -f6)"
-fi
-
-if [ -f "$REAL_HOME/.dmrc" ]; then
-    printf -- "--- .dmrc ---\n"
-    cat "$REAL_HOME/.dmrc"
-    echo
-else
-    echo ".dmrc not found for the user session."
-fi
-
-if [ -f "$REAL_HOME/.xprofile" ]; then
-    printf -- "--- .xprofile ---\n"
-    cat "$REAL_HOME/.xprofile"
-    echo
-fi
-
-echo "XDG_CURRENT_DESKTOP: ${XDG_CURRENT_DESKTOP:-Not set}"
-echo "DESKTOP_SESSION: ${DESKTOP_SESSION:-Not set}"
-
-printf "\n##### lspci hardware info ###############\n\n"
-
-if command -v lspci >/dev/null 2>&1; then
-    lspci -nnk 2> >(grep -v "pcilib:" >&2) | awk '
-        BEGIN { printer=0 }
-        /^[0-9a-f]{2}:[0-9a-f]{2}\.[0-9]/ {
-            if ($0 ~ /Network controller|Ethernet controller/) {
-                printer=1
-            } else {
-                printer=0
-            }
-        }
-        printer { print }
-    '
-else
-    echo "'lspci' command is not available."
-fi
-
-printf "\n##### lsusb #############################\n\n"
-lsusb
-
-printf "\n##### rfkill ############################\n\n"
-if command -v rfkill >/dev/null 2>&1; then
+    echo "=== RFKill Status ==="
     rfkill list
-else
-    echo "'rfkill' command is not available."
+    echo ""
+
+    echo "=== Kernel Messages (dmesg) ==="
+    dmesg | grep -iE 'wlan|wifi|ath|iwl|rtw|broadcom|b43|firmware' | tail -n 50
+    echo ""
+} > "$OUTPUT_FILE" 2>&1
+
+echo "Diagnostic collection complete. Output saved to $OUTPUT_FILE."
+
+# --- [ 200 KB FILE SIZE CHECK BLOCK ] ---
+if [ -f "$OUTPUT_FILE" ]; then
+    FILE_SIZE=$(wc -c < "$OUTPUT_FILE" 2>/dev/null)
+
+    # Check if log exceeds 200 KB (200,000 bytes)
+    if [ "$FILE_SIZE" -gt 200000 ]; then
+        echo ""
+        echo "Output file exceeds 200 KB limit. Creating archive '$ARCHIVE_FILE'..."
+        tar -czf "$ARCHIVE_FILE" "$OUTPUT_FILE"
+        echo "Archive created: $ARCHIVE_FILE"
+    fi
 fi
 
-printf "\n##### secure boot #######################\n\n"
-if [ -x /usr/bin/mokutil ]; then
-    mokutil --sb
-else
-    echo "'mokutil' is not installed (package \"mokutil\")."
-fi
+# --- [ PASTEBIN UPLOAD FUNCTION ] ---
+do_pastebin_upload() {
+    local file_to_paste="$1"
+    local paste_url=""
 
-printf "\n##### lsmod #############################\n\n"
-if command -v lsmod >/dev/null 2>&1; then
-    LSMOD=$(lsmod 2>/dev/null | grep -E "(^|[[:punct:] ])($MODMATCHES|$LSMODMATCHES)[^[:punct:] ]*([[:punct:] ]|$)")
-    if [ -n "$LSMOD" ]; then
-        echo "$LSMOD"
+    if [ ! -s "$file_to_paste" ]; then
+        echo "Error: Output file is missing or empty." >&2
+        return 1
+    fi
+
+    echo "Attempting to upload results to an online paste service..."
+
+    # Option 1: termbin.com (No account required, standard TCP port 9999)
+    if command -v nc >/dev/null 2>&1; then
+        paste_url=$(nc termbin.com 9999 < "$file_to_paste" 2>/dev/null | tr -d '\r\n\0')
+    elif [ -e /dev/tcp ]; then
+        paste_url=$( (exec 3<>/dev/tcp/termbin.com/9999 && cat "$file_to_paste" >&3 && cat <&3) 2>/dev/null | tr -d '\r\n\0' )
+    fi
+
+    # Option 2: paste.rs (Fallback anonymous curl paste service)
+    if [ -z "$paste_url" ] && command -v curl >/dev/null 2>&1; then
+        paste_url=$(curl -sS --data-binary @"$file_to_paste" https://paste.rs 2>/dev/null | tr -d '\r\n\0')
+    fi
+
+    # Option 3: Legacy pastebinit fallback (if system configuration works)
+    if [ -z "$paste_url" ] && command -v pastebinit >/dev/null 2>&1; then
+        paste_url=$(pastebinit "$file_to_paste" 2>/dev/null | tr -d '\r\n\0')
+    fi
+
+    # Display results
+    if [ -n "$paste_url" ]; then
+        echo ""
+        echo "=========================================================="
+        echo " Wireless info successfully uploaded to:"
+        echo " $paste_url"
+        echo "=========================================================="
+        echo ""
     else
-        echo "No matching wireless modules found in lsmod output."
+        echo ""
+        echo "Notice: Automatic paste failed. Please upload or attach"
+        echo "the file '$file_to_paste' directly to your support thread."
+        echo ""
     fi
-else
-    echo "'lsmod' command is not available."
-fi
+}
 
-printf "\n##### dkms #############################\n\n"
-if command -v dkms >/dev/null 2>&1; then
-    DKMS_TREE="/var/lib/dkms"
-    if [ -d "/var/lib/snapd/hostfs/var/lib/dkms" ]; then
-        DKMS_TREE="/var/lib/snapd/hostfs/var/lib/dkms"
-    fi
-    
-    DKMS_OUT=$(dkms status --dkmstree "$DKMS_TREE" 2>/dev/null)
-    if [ -n "$DKMS_OUT" ]; then
-        echo "$DKMS_OUT"
-    else
-        echo "No DKMS modules found or tree is empty."
-    fi
-else
-    echo "'dkms' command is not available."
-fi
-
-printf "\n##### interfaces ########################\n\n"
-NET_BASE="/etc/network"
-if [ -d "/var/lib/snapd/hostfs/etc/network" ]; then
-    NET_BASE="/var/lib/snapd/hostfs/etc/network"
-fi
-
-for IFACESFILE in "$NET_BASE/interfaces" "$NET_BASE"/interfaces.d/*; do
-    [ -f "$IFACESFILE" ] || continue
-    IFACESFLCNT=$(sed '/^#/d;s/^wpa-psk [[:graph:]]\+/wpa-psk <WPA key removed>/' "$IFACESFILE" 2>/dev/null)
-    if [ -n "$IFACESFLCNT" ]; then
-        DISPLAY_PATH="${IFACESFILE#/var/lib/snapd/hostfs}"
-        printf "[%s]\n%s\n\n" "$DISPLAY_PATH" "$IFACESFLCNT"
-    fi
-done
-
-printf "\n##### ifconfig / ip address #############\n\n"
-
-if command -v ip >/dev/null 2>&1; then
-    IFCONFIG=$(ip address show 2>/dev/null)
-elif command -v ifconfig >/dev/null 2>&1; then
-    IFCONFIG=$(ifconfig -a 2>/dev/null)
-else
-    echo "'ip' command is not available (package \"iproute2\")."
-    IFCONFIG=""
-fi
-
-if [ -n "$IFCONFIG" ]; then
-    echo "$IFCONFIG"
-    
-    IFCONFIG_FLATTENED=$(sed -n '1h; 1!H; ${g;s/\n /\\ /g;p}' <<< "$IFCONFIG")
-    IFACESETH=($(sed -n 's#^[0-9]\+: \([^ :]\+\):.* link/ether.*#\1#p; s/^\([^ :]\+\):\?.* \(Link encap:Ethernet\|ether\).*/\1/p' <<< "$IFCONFIG_FLATTENED"))
-    
-    if (( ${#IFACESETH[@]} > 0 )); then
-        IFETHMATCHES="${IFACESETH[*]}"
-        IFACEMATCHES="($IFACEMATCHES|(${IFETHMATCHES// /|}))"
-    fi
-else
-    echo "Failed to retrieve network interface configuration."
-fi
-
-printf "\n##### iw link ##########################\n\n"
-if command -v iw >/dev/null 2>&1; then
-    wireless_interfaces=$(iw dev | awk '$1=="Interface"{print $2}')
-    if [ -z "$wireless_interfaces" ]; then
-        echo "No wireless interfaces found."
-    else
-        for iface in $wireless_interfaces; do
-            printf -- "--- Interface: %s ---\n" "$iface"
-            iw dev "$iface" link
-            echo
-        done
-    fi
-else
-    echo "'iw' command is not available."
-fi
-
-printf "\n##### route #############################\n\n"
-
-if command -v ip >/dev/null 2>&1; then
-    ip route show 2>/dev/null
-elif command -v route >/dev/null 2>&1; then
-    route -n 2>/dev/null
-else
-    echo "'ip' command is not available (package \"iproute2\")."
-fi
-
-printf "\n##### resolv.conf #######################\n\n"
-RESOLV_PATH="/etc/resolv.conf"
-if [ -f "/var/lib/snapd/hostfs/etc/resolv.conf" ]; then
-    RESOLV_PATH="/var/lib/snapd/hostfs/etc/resolv.conf"
-fi
-
-if [ -f "$RESOLV_PATH" ]; then
-    stat -c "[%a %U %N]" "$RESOLV_PATH" 2>/dev/null || echo "stat failed"
-    grep -v '^#' "$RESOLV_PATH" 2>/dev/null
-else
-    echo "resolv.conf not found."
-fi
-
-printf "\n##### network managers ##################\n\n"
-printf "Installed:\n\n"
-NETMGRINST=()
-for NETMGRNR in "${!NETMGRPATHS[@]}"; do
-    CHECK_PATH="${NETMGRPATHS[$NETMGRNR]}"
-    if [ ! -f "$CHECK_PATH" ] && [ -f "/var/lib/snapd/hostfs$CHECK_PATH" ]; then
-        CHECK_PATH="/var/lib/snapd/hostfs$CHECK_PATH"
-    fi
-    if [ -f "$CHECK_PATH" ]; then
-        NETMGRINST+=("${NETMGRNAMES[$NETMGRNR]}")
-    fi
-done
-printf "\t%s\n" "${NETMGRINST[*]:-None found.}"
-
-NETMGRMATCHES=${NETMGRPATHS[@]/#*\//|}
-NETMGRMATCHES=${NETMGRMATCHES// |/|}
-NETMGRMATCHES="(${NETMGRMATCHES#|})"
-
-printf "\nRunning:\n\n"
-ps -ef 2>/dev/null | grep -E "( |/)$NETMGRMATCHES($| )" || printf "\tNone found.\n"
-
-printf "\n##### NetworkManager info ###############\n\n"
-if command -v nmcli >/dev/null 2>&1; then
-    nmcli -f all device show 2>/dev/null | sed '/^GENERAL.DEVICE:[ ]\+lo$/,/^$/d; /^AP\[[0-9]\+\]\./d'
-    echo
-    nmcli -f SSID,BSSID,MODE,CHAN,FREQ,RATE,SIGNAL,BARS,SECURITY,ACTIVE,IN-USE device wifi list 2>/dev/null
-else
-    echo "NetworkManager is not installed (package \"network-manager\")."
-fi
-
-printf "\n##### NetworkManager.state ##############\n\n"
-NM_STATE_PATH="/var/lib/NetworkManager/NetworkManager.state"
-if [ -f "/var/lib/snapd/hostfs/var/lib/NetworkManager/NetworkManager.state" ]; then
-    NM_STATE_PATH="/var/lib/snapd/hostfs/var/lib/NetworkManager/NetworkManager.state"
-fi
-
-if [ -f "$NM_STATE_PATH" ]; then
-    if [ -n "$SUDO" ]; then
-        $SUDO cat -s "$NM_STATE_PATH" 2>/dev/null
-    else
-        cat -s "$NM_STATE_PATH" 2>/dev/null
-    fi
-else
-    echo "NetworkManager.state not found."
-fi
-
-printf "\n##### NetworkManager config #############\n\n"
-NM_CONF_BASE=""
-if [ -d "/var/lib/snapd/hostfs/etc/NetworkManager" ]; then
-    NM_CONF_BASE="/var/lib/snapd/hostfs"
-fi
-
-for NMCONFFILE in $(find "$NM_CONF_BASE/etc/NetworkManager" "$NM_CONF_BASE/usr/lib/NetworkManager" -name "*.conf" 2>/dev/null | sort); do
-    if [ -f "$NMCONFFILE" ]; then
-        NMCONFCNT=$(grep -v -E '^(#|$)' "$NMCONFFILE" 2>/dev/null)
-        if [ -n "$NMCONFCNT" ]; then
-            DISPLAY_PATH="${NMCONFFILE#/var/lib/snapd/hostfs}"
-            printf "[[%s]]\n%s\n\n" "$DISPLAY_PATH" "$NMCONFCNT"
-        fi
-    fi
-done
-
-printf "\n##### NetworkManager profiles ###########\n\n"
-NM_PROFILES_DIR="/etc/NetworkManager/system-connections"
-if [ -d "/var/lib/snapd/hostfs/etc/NetworkManager/system-connections" ]; then
-    NM_PROFILES_DIR="/var/lib/snapd/hostfs/etc/NetworkManager/system-connections"
-fi
-
-if [ -d "$NM_PROFILES_DIR" ]; then
-    if [ -n "$SUDO" ]; then
-        trap "" 2 3
-        NMPROFILES=$($SUDO find "$NM_PROFILES_DIR" -maxdepth 1 -type f -exec grep -vH '^$' {} + 2>/dev/null) && SUDOSUCCESS="yes" || SUDOSUCCESS="no"
-        trap 2 3
-        if [ "$SUDOSUCCESS" = "yes" ] && [ -n "$NMPROFILES" ]; then
-            ORIGIFS="$IFS"
-            IFS=$'\n'
-            NMWLPROFSOUT=""
-            for NMWLPRFFILE in $(sed -n 's/^\(.\+\):type=\(802-11-wireless\|wifi\).*$/\1/p' <<< "$NMPROFILES"); do
-                CLEAN_PATH="${NMWLPRFFILE#/var/lib/snapd/hostfs}"
-                NMWLPRFFLPERMS=$(stat -c "%a %U" "$NMWLPRFFILE" 2>/dev/null || echo "unknown")
-                NMWLPROFILE=($(sed -n "s;^$NMWLPRFFILE:\($NMPROFMATCHES.*\)$;\1 |;p" <<< "$NMPROFILES"))
-                NMWLPROFSOUT+="[[$CLEAN_PATH]] ($NMWLPRFFLPERMS)"$'\n'"${NMWLPROFILE[@]}"$'\n\n'
-            done
-            IFS="$ORIGIFS"
-            sed 's# | \[#\n\[#g;s#\] |#\]#g;s/ |$//' <<< "$NMWLPROFSOUT" | sed '/^\[[^]]*\]$/d'
-        else
-            echo "No active wireless profiles found or privilege escalation failed."
-        fi
-    else
-        echo "No way to acquire admin privileges found."
-    fi
-else
-    echo "No NetworkManager profiles found."
-fi
-
-printf "\n##### Netplan config ####################\n\n"
-NETPLAN_PREFIX=""
-if [ -d "/var/lib/snapd/hostfs/etc/netplan" ] || [ -d "/var/lib/snapd/hostfs/lib/netplan" ]; then
-    NETPLAN_PREFIX="/var/lib/snapd/hostfs"
-fi
-
-NETPLAN_DIRS="$NETPLAN_PREFIX/lib/netplan $NETPLAN_PREFIX/etc/netplan $NETPLAN_PREFIX/run/netplan"
-NETPLAN_FOUND=0
-
-for dir in $NETPLAN_DIRS; do
-    if [ -d "$dir" ]; then
-        for NPLANFILE in "$dir"/*.yaml; do
-            [ -f "$NPLANFILE" ] || continue
-            NETPLAN_FOUND=1
-            NPLANFLCNT=$(grep -v -E '^(#|$)' "$NPLANFILE" 2>/dev/null)
-            if [ -n "$NPLANFLCNT" ]; then
-                DISPLAY_PATH="${NPLANFILE#/var/lib/snapd/hostfs}"
-                printf "[%s]\n%s\n\n" "$DISPLAY_PATH" "$NPLANFLCNT" | grep -E -v "password|mac|MAC"
+# --- [ INTERACTIVE UPLOAD PROMPT ] ---
+if command -v nc >/dev/null 2>&1 || command -v curl >/dev/null 2>&1 || command -v pastebinit >/dev/null 2>&1 || [ -e /dev/tcp ]; then
+    echo ""
+    read -r -p "Do you also want to post them to an online pastebin service? [Y/n]: " choice
+    case "$choice" in
+        [yY][eE][sS]|[yY]|"")
+            if [ -f "$OUTPUT_FILE" ]; then
+                do_pastebin_upload "$OUTPUT_FILE"
+            elif [ -f "$ARCHIVE_FILE" ]; then
+                echo "Uncompressing log file temporarily for paste service..."
+                tar -xzf "$ARCHIVE_FILE"
+                do_pastebin_upload "$OUTPUT_FILE"
             fi
-        done
-    fi
-done
-
-if [ "$NETPLAN_FOUND" -eq 0 ]; then
-    echo "No Netplan configuration files found."
-fi
-
-printf "\n##### iw reg get ########################\n\n"
-
-if command -v iw >/dev/null 2>&1; then
-    IWREGGET=$(iw reg get 2>&1)
-    IW_SUCCESS=$?
-    
-    TIMEZONE_PATH="/etc/timezone"
-    if [ -f "/var/lib/snapd/hostfs/etc/timezone" ]; then
-        TIMEZONE_PATH="/var/lib/snapd/hostfs/etc/timezone"
-    fi
-    
-    if [ -f "$TIMEZONE_PATH" ]; then
-        REGION=$(cat "$TIMEZONE_PATH" 2>/dev/null)
-        if [ -n "$REGION" ]; then
-            printf "Timezone: %s (from %s)\n\n" "$REGION" "${TIMEZONE_PATH#/var/lib/snapd/hostfs}"
-        fi
-    elif [ -L "/var/lib/snapd/hostfs/etc/localtime" ] || [ -L "/etc/localtime" ]; then
-        LOCALTIME_TARGET="/var/lib/snapd/hostfs/etc/localtime"
-        [ -L "$LOCALTIME_TARGET" ] || LOCALTIME_TARGET="/etc/localtime"
-        
-        REAL_LOCALTIME=$(readlink -f "$LOCALTIME_TARGET" 2>/dev/null)
-        if [[ "$REAL_LOCALTIME" =~ zoneinfo/(.*)$ ]]; then
-            printf "Timezone: %s (derived from system localtime)\n\n" "${BASH_REMATCH[1]}"
-        fi
-    fi
-    
-    if [ "$IW_SUCCESS" -eq 0 ] && [ -n "$IWREGGET" ]; then
-        echo "$IWREGGET"
-    else
-        echo "$IWREGGET"
-        echo "Failed to retrieve wireless regulatory domain via iw."
-    fi
-else
-    echo "'iw' command is not available (package \"iw\")."
-fi
-
-printf "\n##### iw scan ###########################\n\n"
-if command -v iw >/dev/null 2>&1; then
-    wireless_interfaces=$(iw dev | awk '$1=="Interface"{print $2}')
-    
-    if [ -z "$wireless_interfaces" ]; then
-        echo "No wireless interfaces found."
-    else
-        for iface in $wireless_interfaces; do
-            printf -- "--- Interface: %s ---\n\n" "$iface"
-            if [ -n "$SUDO" ]; then
-                trap "" 2 3
-                IWSCAN=$($SUDO${KDESUDO+ -d} iw dev "$iface" scan 2>/dev/null) && SUDOSUCCESS="yes" || SUDOSUCCESS="no"
-                trap 2 3
-                if [ "$SUDOSUCCESS" = "yes" ]; then
-                    if [[ $IWSCAN = *freq:* ]]; then
-                        printf "Frequency occupancy:\n\n"
-                        grep '^[ ]*freq:' <<< "$IWSCAN" | sort | uniq -c | sed 's/^[ ]\+\([ ][0-9]\+\)[ ]\+/     \1    APs on freq /'
-                        echo
-                    fi
-                    grep -E 'BSS |freq:|signal:|SSID:' <<< "$IWSCAN" | sed 's/^[[:space:]]*//'
-                else
-                    printf "\nAcquisition of admin privileges failed for %s.\n" "$iface"
-                fi
-            else
-                echo "No way to acquire admin privileges found."
-            fi
-            echo
-        done
-    fi
-else
-    echo "'iw' is not installed."
-fi
-
-printf "\n##### module infos ######################\n\n"
-
-if command -v modinfo >/dev/null 2>&1; then
-    MODINFO_ARGS=""
-    if [ -d "/var/lib/snapd/hostfs/lib/modules/$(uname -r)" ]; then
-        MODINFO_ARGS="-b /var/lib/snapd/hostfs"
-    fi
-
-    if [ -n "$LSMOD" ]; then
-        MODULES=$(grep -o -E "^$MODMATCHES[^ ]*" <<< "$LSMOD")
-        
-        if [ -n "$MODULES" ]; then
-            for MODULE in $MODULES; do
-                MODINFO=$(modinfo $MODINFO_ARGS "$MODULE" 2>/dev/null | grep -i -E "^$MODINFOINCL:")
-                if [ -n "$MODINFO" ]; then
-                    printf "[%s]\n%s\n\n" "$MODULE" "$MODINFO"
-                fi
-            done
-        else
-            echo "No matching wireless modules found to inspect."
-        fi
-    else
-        echo "No loaded modules data available from lsmod."
-    fi
-else
-    echo "'modinfo' command is not available."
-fi
-
-printf "\n##### module parameters #################\n\n"
-
-if [ -n "$MODULES" ]; then
-    for MODULE in $MODULES; do
-        PARAM_DIR="/sys/module/$MODULE/parameters"
-        if [ ! -d "$PARAM_DIR" ] && [ -d "/var/lib/snapd/hostfs/sys/module/$MODULE/parameters" ]; then
-            PARAM_DIR="/var/lib/snapd/hostfs/sys/module/$MODULE/parameters"
-        fi
-        
-        if [ -d "$PARAM_DIR" ]; then
-            MODPARAMS=$(grep -H '^[[:graph:]]' "$PARAM_DIR"/* 2>/dev/null | sed 's#^.*/##;s/:/: /')
-            if [ -n "$MODPARAMS" ]; then
-                printf "[%s]\n%s\n\n" "$MODULE" "$MODPARAMS"
-            fi
-        fi
-    done
-else
-    echo "No wireless modules available to inspect for parameters."
-fi
-
-printf "\n##### modprobe options ##################\n\n"
-for MODPROBEFILE in $(find /etc/modprobe.{conf,d} -name "*.conf" -regextype posix-egrep -not -regex ".*$MODPROBEXCL.*" 2> /dev/null | sort); do
-    MODPROBEOPTS=$(grep -v -E '^(#|$)' "$MODPROBEFILE" 2>/dev/null)
-    if [ -n "$MODPROBEOPTS" ]; then
-        printf "[%s]\n%s\n\n" "$MODPROBEFILE" "$MODPROBEOPTS"
-    fi
-done
-
-printf "\n##### systemd-sleep hooks ###############\n\n"
-SYSTEMD_SLEEP_DIRS="/var/lib/snapd/hostfs/etc/systemd/system-sleep /var/lib/snapd/hostfs/lib/systemd/system-sleep"
-
-found_hooks=0
-for sleep_dir in $SYSTEMD_SLEEP_DIRS; do
-    if [ -d "$sleep_dir" ]; then
-        for hook in "$sleep_dir"/*; do
-            if [ -f "$hook" ]; then
-                found_hooks=1
-                DISPLAY_PATH="${hook#/var/lib/snapd/hostfs}"
-                printf -- "--- Hook: %s ---\n" "$DISPLAY_PATH"
-                if [ -r "$hook" ]; then
-                    head -n 20 "$hook"
-                else
-                    echo "[Permission denied or unreadable]"
-                fi
-                echo
-            fi
-        done
-    fi
-done
-
-if [ "$found_hooks" -eq 0 ]; then
-    echo "No custom systemd sleep hooks found."
-fi
-
-printf "\n##### udev rules ########################\n\n"
-UDEV_BASE="/etc/udev/rules.d"
-if [ -d "/var/lib/snapd/hostfs/etc/udev/rules.d" ]; then
-    UDEV_BASE="/var/lib/snapd/hostfs/etc/udev/rules.d"
-fi
-
-for UDEVRLFILE in $(find "$UDEV_BASE" -name "*net*.rules" 2>/dev/null | sort); do
-    UDEVRULES=$(grep -B1 '^[^#]' "$UDEVRLFILE" 2>/dev/null | grep -E -v '^(--)?$')
-    if [ -n "$UDEVRULES" ]; then
-        DISPLAY_PATH="${UDEVRLFILE#/var/lib/snapd/hostfs}"
-        printf "[%s]\n%s\n\n" "$DISPLAY_PATH" "$UDEVRULES"
-    fi
-done
-
-printf "\n##### dmesg wireless diagnostics ########\n\n"
-if command -v dmesg >/dev/null 2>&1; then
-    if [ -n "$SUDO" ]; then
-        trap "" 2 3
-        DMESG_OUT=$($SUDO${KDESUDO+ -d} dmesg -T 2>/dev/null) && SUDOSUCCESS="yes" || SUDOSUCCESS="no"
-        trap 2 3
-        if [ "$SUDOSUCCESS" = "yes" ] && [ -n "$DMESG_OUT" ]; then
-            echo "$DMESG_OUT" | grep -i -E "$DMESGMATCHES" | grep -v -E "$DMESGEXCL"
-        else
-            echo "Failed to retrieve dmesg logs or privilege escalation failed."
-        fi
-    else
-        dmesg -T 2>/dev/null | grep -i -E "$DMESGMATCHES" | grep -v -E "$DMESGEXCL"
-    fi
-else
-    echo "'dmesg' command is not available."
-fi
-
-printf "\n########## wireless info END ############\n\n"
-
-exec 2>&4 4>&-
-exec 1>&3 3>&-
-
-##### MAC & IP address masking #####
-
-RESULTS=$(cat -s "$OUTPUTDIR/$FILEBASE.txt")$'\n'
-
-ORIGIFS="$IFS"
-IFS=$'\n'
-
-IFACESIDS=($(sed -n "/\([[:alnum:]]\{2\}:\)\{5\}[[:alnum:]]\{2\}/ {/\(00:\)\{5\}00/! {s/^[0-9]\+: \([^ :]\+\):.*/'\1'/p; s/^\([^ :]\+\):\? .*/'\1'/p}}" <<< "$IFCONFIG"))
-IFACESMACS=($(sed -n '/\(00:\)\{5\}00/! s#.*\(HWaddr\|link/[^ ]\+\|ether\) \(\([[:alnum:]]\{2\}:\)\{5\}[[:alnum:]]\{2\}\).*#\2#p' <<< "$IFCONFIG"))
-IFACESIP6S=($(ip6-mac "${IFACESMACS[@]}"))
-
-WLAPSIWLIDS=($(sed -n "/^[ ]*Cell [0-9]\+/,/^[ ]*ESSID:/ {/^[ ]*Cell [0-9]\+/h; /^[ ]*ESSID:/ {H;g;s/^[ ]*Cell 0\?\([0-9]\+\).*ESSID:\"\(.*\)\"$/'\2' [AC\1]/p}}" <<< "$IWLISTSCAN"))
-WLAPSIWLMACS=($(sed -n 's/^[ ]*Cell [0-9]\+.*Address: \([^ ]\+\)/\1/p' <<< "$IWLISTSCAN"))
-WLAPSIWLIP6S=($(ip6-mac "${WLAPSIWLMACS[@]}"))
-
-WLAPSNMRAW=$(sed -n '/^##### NetworkManager info #####/,/^##### / {/^[ ]*Wireless Access Points/,/^$/ {/Wireless Access Points/d;s/^[ ]\+\*\?//;s/:[ ]\+/\t/;p}; /^SSID[ ]\+BSSID[ ]\+/,/^$/ {/^SSID[ ]\{2,\}BSSID[ ]\{2,\}/d;s/[ ]\{2,\}/\t/;p}}' <<< "$RESULTS")
-WLAPSNMIDS=($(awk -F '\t' '{print "'\''" $1 "'\''"}' <<< "$WLAPSNMRAW"))
-WLAPSNMMACS=($(grep -o '\([[:alnum:]]\{2\}:\)\{5\}[[:alnum:]]\{2\}' <<< "$WLAPSNMRAW"))
-WLAPSNMIP6S=($(ip6-mac "${WLAPSNMMACS[@]}"))
-
-IFS="$ORIGIFS"
-
-for IFACENR in "${!IFACESMACS[@]}"; do
-    MACMASKSED+="s;${IFACESMACS[$IFACENR]};<MAC ${IFACESIDS[$IFACENR]} [IF$(($IFACENR + 1))]>;I;"
-    MACMASKSED+=" /${IFACESIP6S[$IFACENR]}/ s;${IFACESIP6S[$IFACENR]/#\\(::/\(};<IP6 ${IFACESIDS[$IFACENR]} [IF$(($IFACENR + 1))]>;I;"
-    IFACEMACC=${IFACESMACS[$IFACENR]//:/}
-    if [[ ${IFACESIDS[$IFACENR],,} =~ ${IFACEMACC,,} ]]; then
-    MACMASKSED+="s;\(${IFACESIDS[$IFACENR]:1:3}\)$IFACEMACC;\1<IF from MAC [IF$(($IFACENR + 1))]>;Ig;"
-    fi
-done
-
-for WLAPIWLNR in "${!WLAPSIWLMACS[@]}"; do
-    MACMASKSED+="s;${WLAPSIWLMACS[$WLAPIWLNR]};<MAC ${WLAPSIWLIDS[$WLAPIWLNR]}>;I;"
-    MACMASKSED+=" /${WLAPSIWLIP6S[$WLAPIWLNR]}/ s;${WLAPSIWLIP6S[$WLAPIWLNR]/#\\(::/\(};<IP6 ${WLAPSIWLIDS[$WLAPIWLNR]}>;I;"
-done
-
-for WLAPNMNR in "${!WLAPSNMMACS[@]}"; do
-    MACMASKSED+="s;${WLAPSNMMACS[$WLAPNMNR]};<MAC ${WLAPSNMIDS[$WLAPNMNR]} [AN$(($WLAPNMNR + 1))]>;I;"
-    MACMASKSED+=" /${WLAPSNMIP6S[$WLAPNMNR]}/ s;${WLAPSNMIP6S[$WLAPNMNR]/#\\(::/\(};<IP6 ${WLAPSNMIDS[$WLAPNMNR]} [AN$(($WLAPNMNR + 1))]>;I;"
-done
-
-sed "$MACMASKSED /\([[:alnum:]]\{2\}:\)\{6,\}/! s/\([[:alnum:]]\{2\}:\)\{5\}[[:alnum:]]\{2\}/<MAC address>/g; s/\b[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}\b/<IPv4 address>/g" <<< "$RESULTS" > "$OUTPUTDIR/$FILEBASE.txt"
-
-##### The End #####
-
-dialog_info "${TERMOUT+\n}Results saved in \"$OUTPUTDIR/$FILEBASE.txt\".${TERMOUT+\n}"
-
-if (( $(stat -c %s "$OUTPUTDIR/$FILEBASE.txt") > 19968 )); then
-    tar -czf "$OUTPUTDIR/$FILEBASE.tar.gz" -C "$OUTPUTDIR" "$FILEBASE.txt" && \
-    dialog_info "Results also archived in \"$OUTPUTDIR/$FILEBASE.tar.gz\",${DIALOGBREAK}as they exceed the 19.5 kB size limit for \".txt\" attachments${DIALOGBREAK}on the Ubuntu Forums.${TERMOUT+\n}" || \
-    dialog_error "Results exceed the 19.5 kB size limit for \".txt\" attachments${DIALOGBREAK}on the Ubuntu Forums, but archive could not be created.${TERMOUT+\n}"
-fi
-
-if [ -x /usr/bin/pastebinit ]; then
-    PASTEBIN=$(dialog_question "Do you also want to post them${DIALOGBREAK}to an online pastebin (dpaste.org)?")
-    if [[ ! $PASTEBIN =~ ^no?$ ]]; then
-        PASTESUCCESS="no"
-        PASTERESULT=$(pastebinit -b https://dpaste.org/ -i "$OUTPUTDIR/$FILEBASE.txt" -f text 2>&1) && PASTESUCCESS="yes"
-        
-        if [ "$PASTESUCCESS" = "yes" ]; then
-            dialog_info "${TERMOUT+\n}Pastebin successful:\n\n${PASTERESULT}${TERMOUT+\n}"
-        else
-            if [ -n "$PASTERESULT" ]; then
-                dialog_error "${TERMOUT+\n}Pastebin failed, error message is:\n\n${PASTERESULT}${TERMOUT+\n}"
-            else
-                dialog_error "${TERMOUT+\n}Pastebin failed, no error message given.${TERMOUT+\n}"
-            fi
-        fi
-    else
-        echo
-    fi
+            ;;
+        *)
+            echo "Skipped online upload. Results saved locally to $OUTPUT_FILE."
+            ;;
+    esac
 fi
