@@ -41,8 +41,8 @@ MODINFOINCL="filename|license|description|depends|retpoline|intree|name|vermagic
 MODPROBEXCL="(alsa-base|blacklist-(firewire|framebuffer|modem|oss|watchdog)|fglrx|nvidia|fbdev|bumblebee)"
 PMUTILSEXCL="/etc/pm/(power.d/(95hdparm-apm|intel-audio-powersave|sata_alpm)|sleep.d/(10_grub-common|10_unattended-upgrades.*|novatel_3g.*))"
 
-NETMGRNAMES=("NetworkManager" "Wicd" "ConnMan")
-NETMGRPATHS=("/usr/sbin/NetworkManager" "/usr/sbin/wicd" "/usr/sbin/connmand")
+NETMGRNAMES=("NetworkManager" "Wicd" "ConnMan" "iwd")
+NETMGRPATHS=("/usr/sbin/NetworkManager" "/usr/sbin/wicd" "/usr/sbin/connmand" "/usr/bin/iwd")
 DEC2BI=({0..1}{0..1}{0..1}{0..1}{0..1}{0..1}{0..1}{0..1})
 DEC2HEX=($(printf "%02x " {0..255}))
 
@@ -177,7 +177,7 @@ if [ -f "$RELEASE_FILE" ]; then
     DIST_ID=$(echo "$OS_ID" | awk '{print toupper(substr($0,1,1)) substr($0,2)}')
     CODENAME="${OS_VERSION_CODENAME:-$OS_UBUNTU_CODENAME}"
     
-    echo "Distributor ID: ${DIST_ID:-Ubuntu}"
+    echo "Distributor ID: ${DIST_ID:-Linux}"
     echo "Description:    ${OS_VERSION:-$OS_NAME}"
     echo "Release:        ${OS_VERSION_ID}"
     echo "Codename:       ${CODENAME}"
@@ -246,7 +246,7 @@ printf "\n##### secure boot #######################\n\n"
 if [ -x /usr/bin/mokutil ]; then
     mokutil --sb
 else
-    echo "'mokutil' is not installed (package \"mokutil\")."
+    echo "'mokutil' is not installed."
 fi
 
 printf "\n##### lsmod #############################\n\n"
@@ -261,21 +261,24 @@ else
     echo "'lsmod' command is not available."
 fi
 
-printf "\n##### dkms #############################\n\n"
+# Enhanced Driver Module Management (Supports DKMS for Ubuntu/Debian/Arch/Mint & Akmods for Fedora/RHEL/CentOS)
+printf "\n##### dkms / akmods status #############\n\n"
 if command -v dkms >/dev/null 2>&1; then
     DKMS_TREE="/var/lib/dkms"
     if [ -d "/var/lib/snapd/hostfs/var/lib/dkms" ]; then
         DKMS_TREE="/var/lib/snapd/hostfs/var/lib/dkms"
     fi
-    
     DKMS_OUT=$(dkms status --dkmstree "$DKMS_TREE" 2>/dev/null)
     if [ -n "$DKMS_OUT" ]; then
         echo "$DKMS_OUT"
     else
         echo "No DKMS modules found or tree is empty."
     fi
+elif [ -d "/var/lib/snapd/hostfs/var/cache/akmods" ] || [ -d "/var/cache/akmods" ]; then
+    echo "Fedora/RHEL Akmods cache found:"
+    ls -la /var/lib/snapd/hostfs/var/cache/akmods 2>/dev/null || ls -la /var/cache/akmods 2>/dev/null
 else
-    echo "'dkms' command is not available."
+    echo "Neither DKMS nor Akmods module tools found."
 fi
 
 printf "\n##### interfaces ########################\n\n"
@@ -292,6 +295,22 @@ for IFACESFILE in "$NET_BASE/interfaces" "$NET_BASE"/interfaces.d/*; do
         printf "[%s]\n%s\n\n" "$DISPLAY_PATH" "$IFACESFLCNT"
     fi
 done
+
+# openSUSE Network Configuration Check (Wicked / sysconfig)
+SUSE_NET_DIR="/etc/sysconfig/network"
+if [ -d "/var/lib/snapd/hostfs/etc/sysconfig/network" ]; then
+    SUSE_NET_DIR="/var/lib/snapd/hostfs/etc/sysconfig/network"
+fi
+if [ -d "$SUSE_NET_DIR" ]; then
+    for susefile in "$SUSE_NET_DIR"/ifcfg-*; do
+        [ -f "$susefile" ] || continue
+        SUSECNT=$(grep -v -E '^(#|$)' "$susefile" 2>/dev/null)
+        if [ -n "$SUSECNT" ]; then
+            DISPLAY_PATH="${susefile#/var/lib/snapd/hostfs}"
+            printf "[openSUSE %s]\n%s\n\n" "$DISPLAY_PATH" "$SUSECNT"
+        fi
+    done
+fi
 
 printf "\n##### ifconfig / ip address #############\n\n"
 
@@ -341,7 +360,7 @@ if command -v ip >/dev/null 2>&1; then
 elif command -v route >/dev/null 2>&1; then
     route -n 2>/dev/null
 else
-    echo "'ip' command is not available (package \"iproute2\")."
+    echo "'ip' command is not available."
 fi
 
 printf "\n##### resolv.conf #######################\n\n"
@@ -378,13 +397,30 @@ NETMGRMATCHES="(${NETMGRMATCHES#|})"
 printf "\nRunning:\n\n"
 ps -ef 2>/dev/null | grep -E "( |/)$NETMGRMATCHES($| )" || printf "\tNone found.\n"
 
+# Arch Linux iwd (Intel Wireless Daemon) Configuration Check
+IWD_CONF_DIR="/etc/iwd"
+if [ -d "/var/lib/snapd/hostfs/etc/iwd" ]; then
+    IWD_CONF_DIR="/var/lib/snapd/hostfs/etc/iwd"
+fi
+if [ -d "$IWD_CONF_DIR" ]; then
+    printf "\n##### Arch Linux iwd configuration #####\n\n"
+    for iwdfile in "$IWD_CONF_DIR"/*.conf; do
+        [ -f "$iwdfile" ] || continue
+        IWDCNT=$(grep -v -E '^(#|$)' "$iwdfile" 2>/dev/null)
+        if [ -n "$IWDCNT" ]; then
+            DISPLAY_PATH="${iwdfile#/var/lib/snapd/hostfs}"
+            printf "[%s]\n%s\n\n" "$DISPLAY_PATH" "$IWDCNT"
+        fi
+    done
+fi
+
 printf "\n##### NetworkManager info ###############\n\n"
 if command -v nmcli >/dev/null 2>&1; then
     nmcli -f all device show 2>/dev/null | sed '/^GENERAL.DEVICE:[ ]\+lo$/,/^$/d; /^AP\[[0-9]\+\]\./d'
     echo
     nmcli -f SSID,BSSID,MODE,CHAN,FREQ,RATE,SIGNAL,BARS,SECURITY,ACTIVE,IN-USE device wifi list 2>/dev/null
 else
-    echo "NetworkManager is not installed (package \"network-manager\")."
+    echo "NetworkManager is not installed."
 fi
 
 printf "\n##### NetworkManager.state ##############\n\n"
@@ -452,6 +488,7 @@ else
     echo "No NetworkManager profiles found."
 fi
 
+# Netplan config (Guarded safely so it runs cleanly on Ubuntu/Debian/Mint derivatives)
 printf "\n##### Netplan config ####################\n\n"
 NETPLAN_PREFIX=""
 if [ -d "/var/lib/snapd/hostfs/etc/netplan" ] || [ -d "/var/lib/snapd/hostfs/lib/netplan" ]; then
@@ -476,7 +513,7 @@ for dir in $NETPLAN_DIRS; do
 done
 
 if [ "$NETPLAN_FOUND" -eq 0 ]; then
-    echo "No Netplan configuration files found."
+    echo "No Netplan configuration files found (normal for non-Ubuntu distros)."
 fi
 
 printf "\n##### iw reg get ########################\n\n"
@@ -512,7 +549,7 @@ if command -v iw >/dev/null 2>&1; then
         echo "Failed to retrieve wireless regulatory domain via iw."
     fi
 else
-    echo "'iw' command is not available (package \"iw\")."
+    echo "'iw' command is not available."
 fi
 
 printf "\n##### iw scan ###########################\n\n"
@@ -531,7 +568,7 @@ if command -v iw >/dev/null 2>&1; then
                 if [ "$SUDOSUCCESS" = "yes" ]; then
                     if [[ $IWSCAN = *freq:* ]]; then
                         printf "Frequency occupancy:\n\n"
-                        grep '^[ ]*freq:' <<< "$IWSCAN" | sort | uniq -c | sed 's/^[ ]\+\([ ][0-9]\+\)[ ]\+/     \1    APs on freq /'
+                        grep '^[ ]*freq:' <<< "$IWSCAN" | sort | uniq -c | sed 's/^[ ]\+\([ ][0-9]\+\)[ ]\+/    \1    APs on freq /'
                         echo
                     fi
                     grep -E 'BSS |freq:|signal:|SSID:' <<< "$IWSCAN" | sed 's/^[[:space:]]*//'
