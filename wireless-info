@@ -25,7 +25,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #
 
-SCRIPTDATE="2026-10-29 3:55 -0700"
+SCRIPTDATE="2026-11-2 3:55 -0700"
 FILEBASE="wireless-info"
 OUTPUTDIR="$PWD"
 OUTPUTDIRFB="/tmp"
@@ -61,7 +61,10 @@ elif [ -x /usr/bin/kdialog ]; then
     DIALOGAPP="kdialog"
     DIALOGBREAK="\n"
 else
-    exit 1
+    # Fallback for non-interactive / headless CI environments instead of exiting
+    DIALOGAPP="terminal"
+    DIALOGBREAK=" "
+    TERMOUT=""
 fi
 
 # Streamlined modern privilege escalation
@@ -100,6 +103,11 @@ dialog_error () {
 }
 
 dialog_question () {
+    # Automatically decline prompts in non-interactive/CI builds to prevent hanging
+    if [ ! -t 0 ]; then
+        echo "no"
+        return
+    fi
     case $DIALOGAPP in
     terminal)
         local INPUT
