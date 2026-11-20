@@ -6,7 +6,7 @@
 # Gathers wireless troubleshooting info into wireless-info.txt (archives over 200 KB).
 #
 
-SCRIPTDATE="2026-11-20 15:20:00 -0600"
+SCRIPTDATE="2026-11-20 15:28:00 -0600"
 FILEBASE="wireless-info"
 OUTPUTDIR="$PWD"
 OUTPUTDIRFB="${SNAP_USER_DATA:-/tmp}"
@@ -48,13 +48,6 @@ else
 fi
 
 SUDO=""
-if [ -z "$IN_SNAP" ] && [ "$EUID" -ne 0 ]; then
-    if [ -t 0 ] && command -v sudo >/dev/null 2>&1; then
-        SUDO="sudo"
-    elif [ -x /usr/bin/pkexec ]; then
-        SUDO="pkexec"
-    fi
-fi
 
 dialog_info () {
     case $DIALOGAPP in
