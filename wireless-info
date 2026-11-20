@@ -25,7 +25,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #
 
-SCRIPTDATE="2026-11-19 19:00 -0600"
+SCRIPTDATE="2026-11-19 20:30:00 -0600"
 FILEBASE="wireless-info"
 OUTPUTDIR="$PWD"
 OUTPUTDIRFB="${SNAP_USER_DATA:-/tmp}"
@@ -35,10 +35,10 @@ IN_SNAP=""
 MODMATCHES="(air|ar5|at7|ath[^3]?|b43|bcma|brcm|carl|ipw|iwl|mt[a-z0-9]+|ndis|r(818|8192[eu]|871|92su)|8(188|189|192|723|812)[acde][esu]|rt[23567]|rtl|ssb|wl|rtw8|(cfg|mac)80211)"
 LSMODMATCHES="(wmi|(dell|ideapad)[-_]laptop)"
 IFACEMATCHES="(wlan[0-9]|wlp[0-9]+[a-z0-9]*|eth[0-9]|enp[0-9]+[a-z0-9]*)"
-DMESGMATCHES="(firmware|[nN]etwork|sdio|SDIO|wifi|wlan|iwl|ath|rtw|rtl|brcm|mt7|cfg80211)"
-NMPROFMATCHES="\(\[connection\]\|id=\|type=\|permissions=\|autoconnect=\|\[802-11-wireless\]\|\[wifi\]\|ssid=\|bssid=\|mac-address\(-blacklist\)\?=\|mtu=\|\[802-1x\]\|[[:graph:]]*ca-certs\?=\|\[ipv[46]\]\|method=\)"
+DMESGMATCHES="(80211|wifi|wi-fi|wlan[0-9]*|wlp[0-9]|rfkill|regulatory|regdom|iwlwifi|iwlmvm|iwldvm|\bath[0-9]+k?|\bath_|brcmfmac|brcmsmac|b43|bcma|rtw8[0-9]|rtw_|rtl8[0-9]|rtl_|rt[23567][0-9]|mt7[69]|carl9170|ndis|sdio)"
+NMPROFMATCHES="\(\[connection\]\Vert{}id=\Vert{}type=\Vert{}permissions=\Vert{}autoconnect=\Vert{}\[802-11-wireless\]\Vert{}\[wifi\]\Vert{}ssid=\Vert{}bssid=\Vert{}mac-address\(-blacklist\)\?=\Vert{}mtu=\Vert{}\[802-1x\]\Vert{}[[:graph:]]*ca-certs\?=\Vert{}\[ipv[46]\]\Vert{}method=\)"
 
-DMESGEXCL="apparmor"
+DMESGEXCL="(apparmor|systemd[1]|drop_monitor|amdgpu|amdxdna|[drm]|i915|nouveau|nvidia|snd_hda)"
 MODINFOINCL="filename|license|description|depends|retpoline|intree|name|vermagic|parm"
 MODPROBEXCL="(alsa-base|blacklist-(firewire|framebuffer|modem|oss|watchdog)|fglrx|nvidia|fbdev|bumblebee)"
 
@@ -47,7 +47,7 @@ NETMGRPATHS=("/usr/sbin/NetworkManager" "/usr/sbin/wicd" "/usr/sbin/connmand" "/
 DEC2BI=({0..1}{0..1}{0..1}{0..1}{0..1}{0..1}{0..1}{0..1})
 DEC2HEX=($(printf "%02x " {0..255}))
 
-# Use UTF-8 locale without triggering missing-locale warnings inside core24
+# Use UTF-8 locale without triggering missing-locale warnings inside core26
 if locale -a 2>/dev/null | grep -qiE '^en_US\.utf-?8$'; then
     export LANG="en_US.UTF-8"
     export LANGUAGE="en_US:en"
@@ -140,7 +140,7 @@ ip6-mac () {
         OCT1BIM="${OCT1BI:0:6}${OCT1BI7#-}${OCT1BI:7}"
         IP6S+=${IP6S:+$'\n'}"${DEC2HEX[2#$OCT1BIM]}${MAC:3:2}:${MAC:6:2}ff:fe${MAC:9:2}:${MAC:12:2}${MAC:15:2}"
     done
-    [ -n "$IP6S" ] && sed 's/\(^\|:\)0\+\([[:alnum:]]\)/\1\2/g;s/^\([0:]\+\)/\\(::\\|\1\\)/' <<< "$IP6S"
+    [ -n "$IP6S" ] && sed 's/\(^\Vert{}:\)0\+\([[:alnum:]]\)/\1\2/g;s/^\([0:]\+\)/\\(::\\Vert{}\1\\)/' <<< "$IP6S"
 }
 
 exec 3>&1 4>&2
@@ -232,7 +232,7 @@ fi
 
 printf "\n##### lspci hardware info ###############\n\n"
 if command -v lspci >/dev/null 2>&1; then
-    lspci -nnk 2> >(grep -v "pcilib:" >&2) | awk '
+    lspci -nnk 2> >(grep -v -E "pcilib:|libkmod:" >&2) | awk '
         BEGIN { printer=0 }
         /^[0-9a-fA-F]{2,4}:[0-9a-fA-F]{2}\.[0-9]/ {
             if ($0 ~ /Network controller|Ethernet controller/) {
@@ -357,6 +357,7 @@ else
     IFCONFIG=""
 fi
 
+IFCONFIG_FLATTENED=""
 if [ -n "$IFCONFIG" ]; then
     echo "$IFCONFIG"
 
@@ -596,10 +597,10 @@ if command -v iw >/dev/null 2>&1; then
                 [ "$SCAN_MODE" = "cached" ] && printf "(Using cached kernel scan results)\n\n"
                 if [[ $IWSCAN = *freq:* ]]; then
                     printf "Frequency occupancy:\n\n"
-                    grep '^[ ]*freq:' <<< "$IWSCAN" | sort | uniq -c | sed 's/^[ ]\+\([0-9]\+\)[ ]\+/    \1    APs on freq /'
+                    grep '^[[:space:]]*freq:' <<< "$IWSCAN" | sort | uniq -c | sed 's/^[[:space:]]*\([0-9]\+\)[[:space:]]*freq:[[:space:]]*/    \1    APs on freq /'
                     echo
                 fi
-                grep -E 'BSS |freq:|signal:|SSID:' <<< "$IWSCAN" | sed 's/^[[:space:]]*//'
+                grep -E '^BSS |^[[:space:]]*(freq:|signal:|SSID:)' <<< "$IWSCAN" | sed 's/^[[:space:]]*//'
             else
                 printf "No scan results available for %s.\n" "$iface"
             fi
@@ -732,7 +733,12 @@ if [ -z "$DMESG_OUT" ] && [ -r /var/log/kern.log ]; then
 fi
 
 if [ -n "$DMESG_OUT" ]; then
-    FILTERED_DMESG=$(echo "$DMESG_OUT" | grep -i -E "$DMESGMATCHES" | grep -v -E "$DMESGEXCL" | tail -n 200)
+    DMESG_PATTERN="$DMESGMATCHES"
+    if [ -n "$MODULES" ]; then
+        DYN_MODS=$(printf '%s\n' "$MODULES" | grep -v '^$' | paste -sd '|' -)
+        [ -n "$DYN_MODS" ] && DMESG_PATTERN="${DMESG_PATTERN}|${DYN_MODS}"
+    fi
+    FILTERED_DMESG=$(echo "$DMESG_OUT" | grep -i -E "$DMESG_PATTERN" | grep -v -E "$DMESGEXCL" | tail -n 200)
     if [ -n "$FILTERED_DMESG" ]; then
         echo "$FILTERED_DMESG"
     else
@@ -754,8 +760,8 @@ RESULTS=$(cat -s "$OUTPUTDIR/$FILEBASE.txt")$'\n'
 ORIGIFS="$IFS"
 IFS=$'\n'
 
-IFACESIDS=($(sed -n "/\([[:alnum:]]\{2\}:\)\{5\}[[:alnum:]]\{2\}/ {/\(00:\)\{5\}00/! {s/^[0-9]\+: \([^ :]\+\):.*/'\1'/p; s/^\([^ :]\+\):\? .*/'\1'/p}}" <<< "$IFCONFIG"))
-IFACESMACS=($(sed -n '/\(00:\)\{5\}00/! s#.*\(HWaddr\|link/[^ ]\+\|ether\) \(\([[:alnum:]]\{2\}:\)\{5\}[[:alnum:]]\{2\}\).*#\2#p' <<< "$IFCONFIG"))
+IFACESIDS=($(sed -n "/\([[:alnum:]]\{2\}:\)\{5\}[[:alnum:]]\{2\}/ {/\(00:\)\{5\}00/! {s/^[0-9]\+: \([^ :]\+\):.*/'\1'/p; s/^\([^ :]\+\):\? .*/'\1'/p}}" <<< "$IFCONFIG_FLATTENED"))
+IFACESMACS=($(sed -n '/\(00:\)\{5\}00/! s#.*\(HWaddr\|link/[^ ]\+\|ether\) \(\([[:alnum:]]\{2\}:\)\{5\}[[:alnum:]]\{2\}\).*#\2#p' <<< "$IFCONFIG_FLATTENED"))
 IFACESIP6S=($(ip6-mac "${IFACESMACS[@]}"))
 
 WLAPSNMRAW=$(sed -n '/^##### NetworkManager info #####/,/^##### / {/^[ ]*Wireless Access Points/,/^$/ {/Wireless Access Points/d;s/^[ ]\+\*\?//;s/:[ ]\+/\t/;p}; /^SSID[ ]\+BSSID[ ]\+/,/^$/ {/^SSID[ ]\{2,\}BSSID[ ]\{2,\}/d;s/[ ]\{2,\}/\t/;p}}' <<< "$RESULTS")
@@ -772,8 +778,8 @@ for IFACENR in "${!IFACESMACS[@]}"; do
         MACMASKSED+=" /${IFACESIP6S[$IFACENR]}/ s;${IFACESIP6S[$IFACENR]/#\\(::/\(};<IP6 ${IFACESIDS[$IFACENR]} [IF$(($IFACENR + 1))]>;I;"
     fi
     IFACEMACC=${IFACESMACS[$IFACENR]//:/}
-    if [[ ${IFACESIDS[$IFACENR],,} =~ ${IFACEMACC,,} ]]; then
-        MACMASKSED+="s;\(${IFACESIDS[$IFACENR]:1:3}\)$IFACEMACC;\1<IF from MAC [IF$(($IFACENR + 1))]>;Ig;"
+    if [ -n "$IFACEMACC" ]; then
+        MACMASKSED+="s;$IFACEMACC;<IF from MAC [IF$(($IFACENR + 1))]>;Ig;"
     fi
 done
 
@@ -814,28 +820,4 @@ do_pastebin_upload() {
 
     # Option 3: Legacy pastebinit
     if [ -z "$paste_url" ] && command -v pastebinit >/dev/null 2>&1; then
-        paste_url=$(pastebinit "$file_to_paste" 2>/dev/null | tr -d '\r\n\0')
-    fi
-
-    if [ -n "$paste_url" ]; then
-        echo "$paste_url"
-        return 0
-    fi
-    return 1
-}
-
-if command -v nc >/dev/null 2>&1 || command -v curl >/dev/null 2>&1 || command -v pastebinit >/dev/null 2>&1; then
-    PASTEBIN=$(dialog_question "Do you also want to post them${DIALOGBREAK}to an online paste service (termbin/paste.rs)?")
-    if [[ ! $PASTEBIN =~ ^no?$ ]]; then
-        PASTESUCCESS="no"
-        PASTERESULT=$(do_pastebin_upload "$OUTPUTDIR/$FILEBASE.txt" 2>&1) && PASTESUCCESS="yes"
-
-        if [ "$PASTESUCCESS" = "yes" ] && [ -n "$PASTERESULT" ]; then
-            dialog_info "${TERMOUT+\n}Paste successful:\n\n${PASTERESULT}${TERMOUT+\n}"
-        else
-            dialog_error "${TERMOUT+\n}Online upload failed${PASTERESULT:+: $PASTERESULT}.${TERMOUT+\n}"
-        fi
-    else
-        echo
-    fi
-fi
+        paste_url=$(pastebinit "$file_to_paste"
