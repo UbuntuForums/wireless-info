@@ -6,7 +6,7 @@
 # Gathers wireless troubleshooting info into wireless-info.txt (archives over 200 KB).
 #
 
-SCRIPTDATE="2026-11-19 21:30:00 -0600"
+SCRIPTDATE="2026-11-20 14:00:00 -0600"
 FILEBASE="wireless-info"
 OUTPUTDIR="$PWD"
 OUTPUTDIRFB="${SNAP_USER_DATA:-/tmp}"
@@ -569,7 +569,7 @@ printf "\n########## wireless info END ############\n\n"
 exec 2>&4 4>&-
 exec 1>&3 3>&-
 
-##### MAC & IP address masking #####
+##### MAC, IP & Hostname masking #####
 RESULTS=$(cat -s "$OUTPUTDIR/$FILEBASE.txt")$'\n'
 ORIGIFS="$IFS"; IFS=$'\n'
 IFACESIDS=($(sed -n "/\([[:alnum:]]\{2\}:\)\{5\}[[:alnum:]]\{2\}/ {/\(00:\)\{5\}00/! {s/^[0-9]\+: \([^ :]\+\):.*/'\1'/p; s/^\([^ :]\+\):\? .*/'\1'/p}}" <<< "$IFCONFIG_FLATTENED"))
@@ -584,17 +584,26 @@ IFS="$ORIGIFS"
 
 MACMASKSED=""
 for IFACENR in "${!IFACESMACS[@]}"; do
-    MACMASKSED+="s;${IFACESMACS[$IFACENR]};<MAC ${IFACESIDS[$IFACENR]} [IF$(($IFACENR + 1))]>;Ig;"
-    [ -n "${IFACESIP6S[$IFACENR]}" ] && MACMASKSED+=" /${IFACESIP6S[$IFACENR]}/ s;${IFACESIP6S[$IFACENR]/#\\(::/\(};<IP6 ${IFACESIDS[$IFACENR]} [IF$(($IFACENR + 1))]>;Ig;"
+    SAFE_IFID=$(printf '%s' "${IFACESIDS[$IFACENR]}" | sed 's/[\\;&]/\\&/g')
+    MACMASKSED+="s;${IFACESMACS[$IFACENR]};<MAC ${SAFE_IFID} [IF$(($IFACENR + 1))]>;Ig;"
+    [ -n "${IFACESIP6S[$IFACENR]}" ] && MACMASKSED+=" /${IFACESIP6S[$IFACENR]}/ s;${IFACESIP6S[$IFACENR]/#\\(::/\(};<IP6 ${SAFE_IFID} [IF$(($IFACENR + 1))]>;Ig;"
     IFACEMACC=${IFACESMACS[$IFACENR]//:/}
     [ -n "$IFACEMACC" ] && MACMASKSED+="s;$IFACEMACC;<IF from MAC [IF$(($IFACENR + 1))]>;Ig;"
 done
 for WLAPNMNR in "${!WLAPSNMMACS[@]}"; do
-    MACMASKSED+="s;${WLAPSNMMACS[$WLAPNMNR]};<MAC ${WLAPSNMIDS[$WLAPNMNR]} [AN$(($WLAPNMNR + 1))]>;Ig;"
-    [ -n "${WLAPSNMIP6S[$WLAPNMNR]}" ] && MACMASKSED+=" /${WLAPSNMIP6S[$WLAPNMNR]}/ s;${WLAPSNMIP6S[$WLAPNMNR]/#\\(::/\(};<IP6 ${WLAPSNMIDS[$WLAPNMNR]} [AN$(($WLAPNMNR + 1))]>;Ig;"
+    SAFE_APID=$(printf '%s' "${WLAPSNMIDS[$WLAPNMNR]}" | sed 's/[\\;&]/\\&/g')
+    MACMASKSED+="s;${WLAPSNMMACS[$WLAPNMNR]};<MAC ${SAFE_APID} [AN$(($WLAPNMNR + 1))]>;Ig;"
+    [ -n "${WLAPSNMIP6S[$WLAPNMNR]}" ] && MACMASKSED+=" /${WLAPSNMIP6S[$WLAPNMNR]}/ s;${WLAPSNMIP6S[$WLAPNMNR]/#\\(::/\(};<IP6 ${SAFE_APID} [AN$(($WLAPNMNR + 1))]>;Ig;"
 done
 
-sed "$MACMASKSED /\([[:alnum:]]\{2\}:\)\{6,\}/! s/\([[:alnum:]]\{2\}:\)\{5\}[[:alnum:]]\{2\}/<MAC address>/g; s/\b[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}\b/<IPv4 address>/g" <<< "$RESULTS" > "$OUTPUTDIR/$FILEBASE.txt"
+HOST_NAME=$(hostname 2>/dev/null || cat /etc/hostname 2>/dev/null)
+if [ -n "$HOST_NAME" ]; then
+    SAFE_HOST=$(printf '%s' "$HOST_NAME" | sed 's/[.[\*^$;]/\\&/g')
+    MACMASKSED+="s;${SAFE_HOST};<hostname>;Ig;"
+fi
+
+sed "$MACMASKSED /\([[:alnum:]]\{2\}:\)\{6,\}/! s/\([[:alnum:]]\{2\}:\)\{5\}[[:alnum:]]\{2\}/<MAC address>/g; s/\b[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}\.[0-9]\{1,3\}\b/<IPv4 address>/g" <<< "$RESULTS" | \
+    sed -E 's/\b(fe80:[0-9a-fA-F:]+|[23][0-9a-fA-F]{3}:[0-9a-fA-F:]+|f[cd][0-9a-fA-F]{2}:[0-9a-fA-F:]+)\b/<IPv6 address>/g' > "$OUTPUTDIR/$FILEBASE.txt"
 
 ##### The End #####
 dialog_info "${TERMOUT+\n}Results saved in \"$OUTPUTDIR/$FILEBASE.txt\".${TERMOUT+\n}"
